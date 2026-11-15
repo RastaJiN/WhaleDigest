@@ -72,6 +72,10 @@ DRAMATIC_BODY_IDS = {
     "chest_push", "step_back_guard", "turn_evade", "clutch_fabric",
     "grab_lapel", "collapse_sob", "present_item", "rub_temple", "fix_attire"
 }
+STACKED_POSES = {
+    "cowgirl", "cowgirl_upright", "reverse_cowgirl", "squat_cowgirl",
+    "lap_sit", "lap_sit_back", "stand_face_hug", "facesit"
+}
 STAGING_IDS = {
     "env_establish", "blocking_2s", "srs_male", "srs_female",
     "prop_insert", "cut_insert", "spatial_shift", "outro_solo",
@@ -429,6 +433,7 @@ def build_fullref_header(
     idea="",
     is_undress=False,
     is_staging=False,
+    is_stacked=False,
     tier="A_two_shot",
     shot_size="mcu",
     female_desc="young woman anchored in <Picture 1>, preserving her exact facial structure, hairstyle, skin tone, and anatomical proportions",
@@ -516,7 +521,13 @@ def build_fullref_header(
 
     # 4. retention_analysis
     parts.append("retention_analysis:")
-    if tier != "C_empty_cut":
+    if tier == "B_solo_female":
+        parts.append("<Subject 1>: fully_preserved - facial identity, exact hairstyle, body anatomy, and skin texture are strictly locked to <Picture 1>.")
+        parts.append("<Subject 2>: absent_from_frame - not in frame for this tight solo angle.")
+    elif tier == "B_solo_male":
+        parts.append("<Subject 1>: absent_from_frame - not in frame for this tight solo angle.")
+        parts.append("<Subject 2>: fully_preserved - masculine facial identity, physique, and skin tone are strictly locked to <Picture 2>.")
+    elif tier != "C_empty_cut":
         if is_undress:
             parts.append("<Subject 1>: partially_preserved - facial features, hairstyle, and body anatomy fully preserved from <Picture 1>; clothing transitions smoothly.")
         else:
@@ -533,6 +544,9 @@ def build_fullref_header(
     elif tier in ("B_solo_female", "B_solo_male"):
         subj = "<Subject 1>" if tier == "B_solo_female" else "<Subject 2>"
         parts.append(f"Consistency: Single subject {subj} in frame with 20% shallow depth-of-field background showing <Subject 3> surface texture from <Picture 3>.")
+    elif is_stacked:
+        parts.append("Consistency: Keep the same faces, body proportions, skin tone, hairstyle, and anatomical scale throughout. "
+                     "Two adults in frame. <Subject 1> vertically straddles and mounts <Subject 2> in intimate vertical and depth alignment; the camera maintains consistent viewing angle without lateral inversion.")
     else:
         parts.append("Consistency: Keep the same faces, body proportions, skin tone, hairstyle, and anatomical scale throughout. "
                      "Two adults in frame. The camera stays on the same side of them throughout; <Subject 1> is on the left, <Subject 2> is on the right.")
@@ -572,15 +586,18 @@ def sanitize_positive_only(text):
     return out
 
 
-def format_segmented_camera_en(cam_desc, dur):
+def format_segmented_camera_en(cam_desc, dur, shot_size=""):
     """
     先静后动三段式运镜封装器：
-    - 0.00s–1.00s 保持静态稳固定格起幅（防止开局前 15 帧人物脸部/手部因运镜产生形变）
+    - 局部/微距景别（hip/macro）豁免 1.00s 初始硬定格，直接保持连续微动，防止交合冲击波开局卡壳断裂
+    - 中远景 0.00s–1.00s 保持静态稳固定格起幅（防止开局前 15 帧人物脸部/手部因运镜产生形变）
     - 1.00s 至 (dur - 0.80s) 平滑执行目标运镜
     - 最后 0.80s 稳固定格落幅，方便下游剪辑切点咬合
     """
     if "tripod" in cam_desc.lower() or dur < 2.2:
         return cam_desc
+    if shot_size in ("hip", "macro"):
+        return f"{cam_desc} with continuous subtle mechanical stabilization throughout"
     t_move_end = max(1.5, round(dur - 0.8, 2))
     return f"0.00s to 1.00s holds steady locking the initial posture, then from 1.00s to {t_move_end:.2f}s {cam_desc}, holding steady for the final 0.80s"
 
@@ -637,16 +654,24 @@ def build_shot_description(shot, index, total_shots, dur, size_desc, cam_desc,
         comp_lock = (f"COMPOSITION LOCK: Extreme macro framing cropped tightly on the hand and surface contact area,{prop_anchor_clause} "
                      "with 20% shallow depth-of-field background anchored in <Picture 3>. ")
     elif first_p == "srs_male":
-        # 文戏男方正打：带站位 + 视线互补，不写肉戏交合
-        blocking_type, blocking_en = _dialogue_blocking(shot)
+        # 文戏男方正打：仅在纯文戏对峙时注入站位，肉戏中的表情反馈不加文戏桌椅站位
+        is_intimate_reaction = shot.get("is_intimate", False) or shot.get("size") in ("face", "cu") and any(k in str(shot.get("text", "")) for k in ("喘", "汗", "爽", "潮红", "高潮", "咬牙", "呻吟"))
+        staging_clause = ""
+        if not is_intimate_reaction:
+            blocking_type, blocking_en = _dialogue_blocking(shot)
+            staging_clause = f"Staging: {blocking_en}. "
         comp_lock = ("COMPOSITION LOCK: Tight single-subject focus cropped from chest to head on <Subject 2> positioned on the left side of the frame, "
                      "gazing downward at a 12-degree angle toward the right foreground against <Picture 3> background. "
-                     f"Staging: {blocking_en}. ")
+                     f"{staging_clause}")
     elif first_p == "srs_female":
-        blocking_type, blocking_en = _dialogue_blocking(shot)
+        is_intimate_reaction = shot.get("is_intimate", False) or shot.get("size") in ("face", "cu") and any(k in str(shot.get("text", "")) for k in ("喘", "汗", "爽", "潮红", "高潮", "咬牙", "呻吟"))
+        staging_clause = ""
+        if not is_intimate_reaction:
+            blocking_type, blocking_en = _dialogue_blocking(shot)
+            staging_clause = f"Staging: {blocking_en}. "
         comp_lock = ("COMPOSITION LOCK: Tight single-subject reaction cropped from collarbones to head on <Subject 1> positioned on the right side of the frame, "
                      "gazing upward at a 12-degree angle toward the left foreground against <Picture 3> support surface. "
-                     f"Staging: {blocking_en}. ")
+                     f"{staging_clause}")
     elif first_p == "blocking_2s":
         blocking_type, blocking_en = _dialogue_blocking(shot)
         comp_lock = ("COMPOSITION LOCK: Two-shot framing both characters establishing their relative positions and power dynamic. "
@@ -661,7 +686,7 @@ def build_shot_description(shot, index, total_shots, dur, size_desc, cam_desc,
         comp_lock = ("COMPOSITION LOCK: Medium-close framing cropped from chest to head on shoulders, collarbone, and unbuttoning fingers, "
                      "with <Subject 2> in full wardrobe. ")
 
-    segmented_cam = format_segmented_camera_en(cam_desc, dur)
+    segmented_cam = format_segmented_camera_en(cam_desc, dur, shot_size=shot.get("size", ""))
 
     # 唯一 Camera: 指令行 + 分号 (;) 黄金分割律
     if index == 0:
@@ -702,7 +727,7 @@ def build_shot_description(shot, index, total_shots, dur, size_desc, cam_desc,
         body_text += " (Anatomical lock: lips gently parted 5 mm with subtle contact and natural lip geometry; his left hand is the single hand in frame)."
 
     if is_penetration and shot.get("size") not in ("face", "cu"):
-        body_text += " Snug anatomical junction between penis and vaginal entrance, male anatomy complete and seated inside the female body with distinct anatomical boundaries, rhythmic piston strokes of 10 cm clearly readable with elastic skin recoil."
+        body_text += " Snug anatomical junction between penis and vaginal entrance, male anatomy fully seated inside the female body with deep pelvic seal, rhythmic piston strokes clearly readable with elastic skin recoil and no part ever emerging detached."
 
     tail = ""
     if hold_last_second or first_p == "outro_solo":
@@ -753,12 +778,13 @@ def single_shot_prompt(shot, index, total_shots, dur, size_desc, cam_desc,
     first_p = pid.split("->")[0]
     is_undress = "undress" in first_p
     is_staging = first_p in STAGING_IDS
+    is_stacked = first_p in STACKED_POSES
     shot_size = shot.get("size", "mcu")
 
     eff_prop = prop_ref or shot.get("prop_ref", "")
     header = build_fullref_header(
         dur, aspect, scene=scene, idea=idea, is_undress=is_undress,
-        is_staging=is_staging, tier=tier, shot_size=shot_size,
+        is_staging=is_staging, is_stacked=is_stacked, tier=tier, shot_size=shot_size,
         female_desc=female_desc, male_desc=male_desc, scene_props=scene_props,
         prop_ref=eff_prop, prop_desc=prop_desc,
         has_audio_refs=has_audio_refs
