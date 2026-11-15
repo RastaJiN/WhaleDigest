@@ -76,6 +76,17 @@ STACKED_POSES = {
     "cowgirl", "cowgirl_upright", "reverse_cowgirl", "squat_cowgirl",
     "lap_sit", "lap_sit_back", "stand_face_hug", "facesit"
 }
+REAR_POSES = {
+    "doggy", "stand_doggy_wall", "table_doggy", "stand_bend_doggy",
+    "side_spoon", "prone_bone", "back_arch_lean"
+}
+SUPINE_POSES = {
+    "missionary", "missionary_legup", "floor_missionary", "face_insert", "side_face"
+}
+ORAL_POSES = {
+    "bj", "squat_bj", "prone_bj", "deepthroat", "head_thrust", "facefuck",
+    "cunnilingus", "sofa_cunni", "sixty_nine"
+}
 STAGING_IDS = {
     "env_establish", "blocking_2s", "srs_male", "srs_female",
     "prop_insert", "cut_insert", "spatial_shift", "outro_solo",
@@ -434,6 +445,10 @@ def build_fullref_header(
     is_undress=False,
     is_staging=False,
     is_stacked=False,
+    is_rear=False,
+    is_supine=False,
+    is_oral=False,
+    female_screen_side="left",
     tier="A_two_shot",
     shot_size="mcu",
     female_desc="young woman anchored in <Picture 1>, preserving her exact facial structure, hairstyle, skin tone, and anatomical proportions",
@@ -460,9 +475,9 @@ def build_fullref_header(
         "balcony": "private terrace"
     }
     scene_en = scene if not re.search(r"[一-鿿]", str(scene)) else scene_en_map.get(sc_id, "interior room")
-    is_tight_crop = shot_size in ("macro", "face")
+    is_tight_crop = shot_size in ("macro", "face", "hip", "cu")
     if is_tight_crop:
-        # 特写/微距镜头部自动瘦身：只保留局部接触材质与浅景深锚定，不写全景大房间与全身陈设，防止把特写拉宽成中景
+        # 特写/微距/臀胯交合镜头部自动瘦身：只保留局部接触材质与浅景深锚定，彻底剔除全景大房间与全身陈设，杜绝把微距拉宽成中景
         props_clause = f" showing close-range {surf['pad']} texture in 20% shallow depth-of-field"
     else:
         props_clause = (f", featuring {scene_props} ({surf['height_anchor']})"
@@ -547,9 +562,20 @@ def build_fullref_header(
     elif is_stacked:
         parts.append("Consistency: Keep the same faces, body proportions, skin tone, hairstyle, and anatomical scale throughout. "
                      "Two adults in frame. <Subject 1> vertically straddles and mounts <Subject 2> in intimate vertical and depth alignment; the camera maintains consistent viewing angle without lateral inversion.")
-    else:
+    elif is_rear:
         parts.append("Consistency: Keep the same faces, body proportions, skin tone, hairstyle, and anatomical scale throughout. "
-                     "Two adults in frame. The camera stays on the same side of them throughout; <Subject 1> is on the left, <Subject 2> is on the right.")
+                     "Two adults in frame. <Subject 2> is positioned directly behind <Subject 1>, driving forward from behind in locked rear-entry depth alignment along the camera axis; no side-by-side lateral split.")
+    elif is_supine:
+        parts.append("Consistency: Keep the same faces, body proportions, skin tone, hairstyle, and anatomical scale throughout. "
+                     "Two adults in frame. <Subject 1> lies supine on the support surface; <Subject 2> hovers and presses directly over her in locked face-to-face vertical and chest-to-chest alignment; no lateral inversion.")
+    elif is_oral:
+        parts.append("Consistency: Keep the same faces, body proportions, skin tone, hairstyle, and anatomical scale throughout. "
+                     "Two adults in frame. <Subject 1> is positioned between the parted thighs of <Subject 2>, kneeling at his lap level in locked close oral alignment.")
+    else:
+        left_char = "<Subject 1>" if female_screen_side == "left" else "<Subject 2>"
+        right_char = "<Subject 2>" if female_screen_side == "left" else "<Subject 1>"
+        parts.append("Consistency: Keep the same faces, body proportions, skin tone, hairstyle, and anatomical scale throughout. "
+                     f"Two adults in frame. The camera stays on the same side of them throughout; {left_char} is on the left, {right_char} is on the right.")
     parts.append("Skin & Lighting: " + DE_OIL)
     parts.append("Motion quality (Anti-Stiffness): Smooth continuous human kinematics with visible inertia, follow-through, "
                  "and natural breathing. Breasts and buttocks exhibit authentic delayed wave jiggle and recoil upon impact.")
@@ -614,7 +640,8 @@ def _dialogue_blocking(shot):
 
 def build_shot_description(shot, index, total_shots, dur, size_desc, cam_desc,
                            lines="", speaker="女子A", scene="hotel suite",
-                           emotion="default", voiceover=False, hold_last_second=False):
+                           emotion="default", voiceover=False, hold_last_second=False,
+                           female_screen_side="left"):
     """
     编译单镜画面与独立 SPEECH 行（100% 对齐 R1~R12 全肯定语法 + 正反打视线互补锁 + 先静后动三段式运镜）
     """
@@ -654,23 +681,40 @@ def build_shot_description(shot, index, total_shots, dur, size_desc, cam_desc,
         comp_lock = (f"COMPOSITION LOCK: Extreme macro framing cropped tightly on the hand and surface contact area,{prop_anchor_clause} "
                      "with 20% shallow depth-of-field background anchored in <Picture 3>. ")
     elif first_p == "srs_male":
-        # 文戏男方正打：仅在纯文戏对峙时注入站位，肉戏中的表情反馈不加文戏桌椅站位
+        # 视线匹配与屏幕轴线联动锁 (Eyeline & Action Axis Match)
         is_intimate_reaction = shot.get("is_intimate", False) or shot.get("size") in ("face", "cu") and any(k in str(shot.get("text", "")) for k in ("喘", "汗", "爽", "潮红", "高潮", "咬牙", "呻吟"))
         staging_clause = ""
-        if not is_intimate_reaction:
+        # 轴线决定站位：若 female 在左，则 male 在右，视线朝左前景；反之 male 在左，视线朝右前景
+        male_side = "right" if female_screen_side == "left" else "left"
+        default_dir = "left foreground" if male_side == "right" else "right foreground"
+        eyeline_dir = f"direct eye-level gaze locked horizontally toward the {default_dir}"
+        ctx = str(shot.get("context_pose", "")) + " " + str(shot.get("text", ""))
+        if any(k in ctx for k in ("cowgirl", "骑乘", "女上")):
+            eyeline_dir = "gazing upward at a 15-degree angle toward <Subject 1> mounted above him"
+        elif any(k in ctx for k in ("missionary", "传教士", "压在")):
+            eyeline_dir = "gazing downward at a 15-degree angle toward <Subject 1> beneath him"
+        elif not is_intimate_reaction:
             blocking_type, blocking_en = _dialogue_blocking(shot)
             staging_clause = f"Staging: {blocking_en}. "
-        comp_lock = ("COMPOSITION LOCK: Tight single-subject focus cropped from chest to head on <Subject 2> positioned on the left side of the frame, "
-                     "gazing downward at a 12-degree angle toward the right foreground against <Picture 3> background. "
+        comp_lock = (f"COMPOSITION LOCK: Tight single-subject focus cropped from chest to head on <Subject 2> positioned on the {male_side} side of the frame, "
+                     f"{eyeline_dir} against <Picture 3> background. "
                      f"{staging_clause}")
     elif first_p == "srs_female":
         is_intimate_reaction = shot.get("is_intimate", False) or shot.get("size") in ("face", "cu") and any(k in str(shot.get("text", "")) for k in ("喘", "汗", "爽", "潮红", "高潮", "咬牙", "呻吟"))
         staging_clause = ""
-        if not is_intimate_reaction:
+        female_side = "left" if female_screen_side == "left" else "right"
+        default_dir = "right foreground" if female_side == "left" else "left foreground"
+        eyeline_dir = f"direct eye-level gaze locked horizontally toward the {default_dir}"
+        ctx = str(shot.get("context_pose", "")) + " " + str(shot.get("text", ""))
+        if any(k in ctx for k in ("cowgirl", "骑乘", "女上")):
+            eyeline_dir = "gazing downward at a 15-degree angle toward <Subject 2> beneath her"
+        elif any(k in ctx for k in ("missionary", "传教士", "压在")):
+            eyeline_dir = "gazing upward at a 15-degree angle toward <Subject 2> above her"
+        elif not is_intimate_reaction:
             blocking_type, blocking_en = _dialogue_blocking(shot)
             staging_clause = f"Staging: {blocking_en}. "
-        comp_lock = ("COMPOSITION LOCK: Tight single-subject reaction cropped from collarbones to head on <Subject 1> positioned on the right side of the frame, "
-                     "gazing upward at a 12-degree angle toward the left foreground against <Picture 3> support surface. "
+        comp_lock = (f"COMPOSITION LOCK: Tight single-subject reaction cropped from collarbones to head on <Subject 1> positioned on the {female_side} side of the frame, "
+                     f"{eyeline_dir} against <Picture 3> support surface. "
                      f"{staging_clause}")
     elif first_p == "blocking_2s":
         blocking_type, blocking_en = _dialogue_blocking(shot)
@@ -779,12 +823,18 @@ def single_shot_prompt(shot, index, total_shots, dur, size_desc, cam_desc,
     is_undress = "undress" in first_p
     is_staging = first_p in STAGING_IDS
     is_stacked = first_p in STACKED_POSES
+    is_rear = first_p in REAR_POSES
+    is_supine = first_p in SUPINE_POSES
+    is_oral = first_p in ORAL_POSES or first_p in ORAL_ONLY
+    female_screen_side = shot.get("female_screen_side", shot.get("female_side", "left"))
     shot_size = shot.get("size", "mcu")
 
     eff_prop = prop_ref or shot.get("prop_ref", "")
     header = build_fullref_header(
         dur, aspect, scene=scene, idea=idea, is_undress=is_undress,
-        is_staging=is_staging, is_stacked=is_stacked, tier=tier, shot_size=shot_size,
+        is_staging=is_staging, is_stacked=is_stacked, is_rear=is_rear,
+        is_supine=is_supine, is_oral=is_oral, female_screen_side=female_screen_side,
+        tier=tier, shot_size=shot_size,
         female_desc=female_desc, male_desc=male_desc, scene_props=scene_props,
         prop_ref=eff_prop, prop_desc=prop_desc,
         has_audio_refs=has_audio_refs
@@ -793,7 +843,8 @@ def single_shot_prompt(shot, index, total_shots, dur, size_desc, cam_desc,
     shot_body = build_shot_description(
         shot, index, total_shots, dur, size_desc, cam_desc,
         lines=lines, speaker=speaker, scene=scene,
-        emotion=emotion, voiceover=voiceover, hold_last_second=hold_last_second
+        emotion=emotion, voiceover=voiceover, hold_last_second=hold_last_second,
+        female_screen_side=female_screen_side
     )
 
     parts = list(header)

@@ -134,19 +134,19 @@ CAMS_LANDSCAPE = {
 CAMS_EN_LANDSCAPE = {
     "push_tension":   "eye-level wide angle, slow lateral dolly push-in sliding forward 15 cm tightening on both subjects",
     "pull_reveal":    "eye-level wide angle, slow dolly pull-back retreating 18 cm revealing left-to-right spatial depth",
-    "tilt_up_desire": "low-to-eye angle, smooth horizontal pan-up shifting 12 cm upward along the torso over three seconds",
-    "tilt_down_impact":"eye-to-low angle, smooth horizontal pan-down shifting 12 cm from the face down to the contact point over three seconds",
+    "tilt_up_desire": "low-to-eye angle, smooth vertical tilt-up pedestal shifting 12 cm upward along the torso over three seconds",
+    "tilt_down_impact":"eye-to-low angle, smooth vertical tilt-down shifting 12 cm from the face down to the contact point over three seconds",
     "ots_depth":      "over-the-shoulder angle with soft-focus foreground shoulder occupying 15% frame edge, subtle 8 cm lateral drift over three seconds",
     "arc_subtle":     "side-oblique angle, subtle 8-degree lateral dolly arc shifting 12 cm over four seconds for horizontal parallax",
     "handheld_breath":"intimate close perspective, organic handheld camera with subtle 2 cm breathing micro-sway synchronized with body rhythm",
     "low_upward":     "subtle 10-degree low-angle perspective preserving natural body proportions, slow 10 cm horizontal push-in",
-    "high_downward":  "subtle 12-degree high-angle perspective preserving natural body proportions, subtle 8 cm horizontal descent",
+    "high_downward":  "subtle 12-degree high-angle perspective preserving natural body proportions, subtle 8 cm vertical crane descent",
     "static_side":    "90-degree side profile angle, tripod locked, both subjects framed left-to-right in a horizontal two-shot",
     "static_rear":    "rear-oblique angle, tripod locked, showing the back and hip drive in horizontal composition",
     "low_hip":        "low-angle hip-level perspective, subtle 4 cm horizontal tracking with pelvic rhythm",
     "static_front":   "eye-level front angle, slow 10 cm dolly push-in over three seconds",
     "ots":            "over-the-shoulder angle with foreground shoulder in soft focus, subtle 8 cm lateral drift",
-    "high_angle":     "subtle 12-degree high-angle perspective, subtle 8 cm horizontal descent",
+    "high_angle":     "subtle 12-degree high-angle perspective, subtle 8 cm vertical crane descent",
     "slow_push":      "eye-level angle, camera pushes in sliding forward 12 cm over three seconds",
     "follow_soft":    "side-oblique angle, camera tracks smoothly moving 10 cm over three seconds",
     "pan_left_right": "eye-level angle, smooth horizontal pan shifting 12 cm left-to-right to reveal the two-subject relationship",
@@ -570,6 +570,55 @@ def save_project_artifacts(out_dir, shots, actual_total, want_total, lines="",
     import datetime
     os.makedirs(out_dir, exist_ok=True)
     asset_dir = os.path.join(out_dir, "00_资产")
+
+    # ── 场次轴线决议器 (Scene Spatial Axis Ledger) ──
+    # 彻底杜绝机械死板的固定方位；接手已有项目时读取账本保持一致，新项目从剧本/分镜动态确立轴线
+    axis_file = os.path.join(out_dir, ".tunjing_axis.json")
+    bible_file = os.path.join(out_dir, "series_bible.json")
+    resolved_female_side = "left"  # 默认女左男右
+
+    if os.path.exists(axis_file):
+        try:
+            with open(axis_file, "r", encoding="utf-8") as af:
+                resolved_female_side = json.load(af).get("female_screen_side", "left")
+        except Exception:
+            pass
+    elif os.path.exists(bible_file):
+        try:
+            with open(bible_file, "r", encoding="utf-8") as bf:
+                resolved_female_side = json.load(bf).get("spatial_axis", {}).get("female_screen_side", "left")
+        except Exception:
+            pass
+    else:
+        # 扫描剧本文本或分镜首镜是否含有方向暗示
+        script_corpus = str(lines) + " " + str(idea)
+        script_path = os.path.join(out_dir, "剧本.md")
+        if os.path.exists(script_path):
+            try:
+                with open(script_path, "r", encoding="utf-8") as sf:
+                    script_corpus += " " + sf.read()
+            except Exception:
+                pass
+        if any(k in script_corpus for k in ("男左女右", "男子A在左", "男主在左", "女子A在右", "女主在右")):
+            resolved_female_side = "right"
+        elif any(k in script_corpus for k in ("女左男右", "女子A在左", "女主在左", "男子A在右", "男主在右")):
+            resolved_female_side = "left"
+
+        # 首次建立即永久写入账本锁死，后续重新跑或加镜头绝对保持一致
+        try:
+            with open(axis_file, "w", encoding="utf-8") as af:
+                json.dump({
+                    "female_screen_side": resolved_female_side,
+                    "male_screen_side": "left" if resolved_female_side == "right" else "right",
+                    "locked_at": datetime.datetime.now().isoformat()
+                }, af, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
+
+    # 将锁定的轴线赋予全集每一个镜头
+    for s in shots:
+        s["female_screen_side"] = resolved_female_side
+
     landscape = is_landscape(aspect)
     _sz_zh = pick_dict(landscape, SHOT_SIZES_LANDSCAPE, SHOT_SIZES)
     _sz_en = pick_dict(landscape, SHOT_SIZES_EN_LANDSCAPE, SHOT_SIZES_EN)

@@ -1,7 +1,7 @@
 ---
 name: tunjing-baodian
 description: "Use when producing or auditing short dramas with Tunjing."
-version: 4.5.1
+version: 4.5.3
 author: 吞鲸工作室 (Swallowing Whale Studio)
 license: MIT
 metadata:
@@ -165,6 +165,10 @@ python scripts/tunjing_scene.py \
 9. **画外音 (OS) 防对口型死锁与声学滤波后置铁律**：凡含内心独白/OS 的镜头，必须附加嘴部物理占位死锁（`while her/his lips remain completely closed`）；电话听筒音质（`300–3400Hz` 带通滤波）与内心独白混响（`aecho` 轻混响）严禁在正向提示词中堆砌无效声学形容词，统一通过 `audio_fx_mode` 交由 `tunjing_mastering.py` 后期 FFmpeg 滤镜链精确合成。
 10. **物理帧长自动换算铁律**：所有送模镜头帧数严格遵循 `length = 5 + 17 * N`（`raw = round(sec * 24)` 后向上对齐），由脚本自动计算写入 `批量任务.json`。
 10b. **横竖屏双轨构图语言铁律（宝典同时具备横屏/竖屏两套完整语法，画幅是「换语法」不是「换数字」）**：竖屏（9:16，默认）与横屏（16:9）的景别、机位、运镜是两套语义完全不同的语言——竖屏靠纵向身体构图（`mcu`=腰胯到胸口、运镜=垂直上下摇、俯仰 12~15 度保身材）；横屏靠横向空间关系（`wide`=两人左右并排交代左右轴线、`mcu`=双人横向同框、运镜=水平推轨/左右摇/横向过肩）。切画幅必须同时切整套构图语言，严禁在竖屏字典上「只改分辨率数字」糊弄横屏。引擎已内置 `SHOT_SIZES_LANDSCAPE` / `CAMS_LANDSCAPE` / `CAMS_EN_LANDSCAPE` 三套横屏字典与 `normalize_aspect()` / `is_landscape()` / `pick_dict()` 画幅工具函数，`save_project_artifacts(..., aspect="16:9")` 或 `--aspect 16:9` 即自动切换横屏全套语言并同步分辨率（9:16→928x1664，16:9→1664x928，1:1→1280x1280）。
+10b2. **场次轴线账本与视线联动铁律（Scene Spatial Axis Ledger & Eyeline Continuity，根治死板写死女左男右与跳轴硬伤，v4.5.3）**：
+   - **动态确立与继承机制**：绝不全天下写死「女左男右」。接手已有项目时，优先读取 `.tunjing_axis.json` 或 `series_bible.json` 中已定好的 `female_screen_side`（`"left"` 或 `"right"`），严格继承跨镜跨集绝不跳轴；新开项目自动扫描剧本第一镜或对峙描述（如“男左女右/陆骁在左”），动态决议轴线并立即写入 `.tunjing_axis.json` 永久固化。
+   - **视听几何联动翻转**：轴线一旦定为男左女右（`female_screen_side: right`），双人同框自动编译为 `<Subject 2> is on the left, <Subject 1> is on the right`；男正打（`srs_male`）定位于左侧画面且视线朝右前方；女反打（`srs_female`）定位于右侧画面且视线朝左前方。两人对视矢量精准咬合，零跳轴！
+   - **四大解剖空间构图锁**：除文戏并排外，其余姿势严禁套用左右并排——后入（`REAR_POSES`）强制锁定纵深前后（男后女前）；传教士（`SUPINE_POSES`）锁定男上女下仰卧俯卧；口交（`ORAL_POSES`）锁定跪姿胯下；骑乘（`STACKED_POSES`）锁定垂直跨坐堆叠。交合特写（`hip`）自动裁剪大房间全景，杜绝把微距拉宽成中景。
 10c. **肉戏骨架契约铁律（Sex Scene Skeleton Contract，骨头里的公式，硬死锁）**：只要本集含肉戏体位，以下四条缺一即被 `tunjing_gatekeeper.py` 的 Step3 熔断，是「好肉戏」的结构完整性下限——① 每场肉戏 ≥1 次体位交换（≥2 个不同交合/口交/前戏姿势）；② 分镜 ≥3 次独立交合特写（`结合部微距`，且三次特写机位/角度不得雷同）；③ 肉戏中穿插女主/男主表情反馈反打（`srs_female`/`srs_male` 正反打或面部特写，不能全程只看交合处；注意肉戏中的表情反打自动豁免文戏桌椅站位，绝不插入隔桌隔门描述）；④ 肉戏全程有女主呻吟/浪叫或男主粗喘等声音反馈（`overall_soundscape` + 分镜表显式写「声音反馈」标注）。引擎收敛后肉戏镜自动写入「- 声音反馈: 全程呻吟/浪叫…」供监制审阅。
    - **防第四面墙破壁与堆叠一致性死锁（v4.5.1）**：严禁在姿势动作与镜头描述中出现 `glances at camera` / `looks at camera` / `facing camera`。骑乘位、面对面抱坐等垂直/纵深堆叠姿势（`STACKED_POSES`）严禁被写成「女左男右」并排句，强制走垂直骑乘跨坐锁；单人正反打镜中不在场角色自动标记为 `absent_from_frame`；结合部严格写入 `fully seated inside her body with deep pelvic seal, rhythmic piston strokes clearly readable with elastic skin recoil and no part ever emerging detached` 彻底杜绝断根悬空与拔出穿帮；交合特写（`hip`/`macro`）豁免开局硬定格 1 秒，保持连续机械微动平滑咬合。另附肉戏优化三准则（强默认，非硬锁）：换体位必须写「抽出→挪腿移重心→重新支点→再结合」物理过渡链；拔除必须先于潮吹（体内痉挛→才抽出）；前戏强度递进「挑逗→前戏→插入→加速→高潮→余韵」。
 10c2. **演员三层表演铁律（治「站桩、木讷」，文戏肉戏通吃，演员表演是灵魂不是附加）**：角色不能只「脸动」，必须「脸 + 身体 + 动作弧」三层一起演，否则再准的体位、再对的机位也是假人。引擎 `tunjing_core.py` 已内置三层，缺一即属「没表演」：① **面部表情通道** `EMOTION_MUSCLE_CUES`（情绪点名 + 两处景别可读泄露 + 1.5s 落点，如怒=皱眉+咬肌隆起+怒视）；② **身体决断动作通道** `EMOTION_BODY_ACTIONS`（重心/肩线/手指/步伐/物件跟着情绪动，如怒=重心前压+肩膀绷紧+握拳指节发白，绝不站着发怒）；③ **起点-变化-终点动作链** `wrap_action_arc`（动作必须有头有尾：起点姿态 → 因果动作 → 终点落定，禁止没头没尾的体位拍）。肉戏高潮/泄洪镜强制加表演（你定的「肉戏要反馈要表演，不是单纯呻吟抽插」——`ecstasy` 表情 + 背弓头仰手指抓挠的身体动作 + 交合冲刺的动作弧）。这条是从 drama-skills「构造可见的表演变化 + 起点-终点动作链 + H3 反应镜配方」内化的吞鲸原生，禁止只写情绪词（会演过头）或只写体格（会木讷），必须是「情绪词点名 + 身体外显通道 + 起点终点弧」三层齐发。
