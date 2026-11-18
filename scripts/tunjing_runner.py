@@ -22,9 +22,43 @@ import subprocess
 import argparse
 import urllib.request
 import urllib.error
+from tunjing_task_source import load_task_source, require_source_audit, source_record, validate_batch_metadata, validate_image_references
+from tunjing_audio_contract import resolve_audio_contract, validate_workflow_audio
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_WF = os.path.join(BASE_DIR, "..", "references", "workflows", "tunjing_v4_master_api.json")
+
+# ── 画幅解析（横屏项目必备）：ResolutionSelector 只认带括号的原生枚举值 ──────
+# 取值必须与 ComfyUI ResolutionSelector 的 COMBO 枚举逐字一致，否则整条 prompt 校验失败、静默零产出
+ASPECT_ALIASES = {
+    "16:9": "16:9 (Widescreen)",
+    "landscape": "16:9 (Widescreen)",
+    "横屏": "16:9 (Widescreen)",
+    "横向": "16:9 (Widescreen)",
+    "9:16": "9:16 (Portrait Widescreen)",
+    "portrait": "9:16 (Portrait Widescreen)",
+    "竖屏": "9:16 (Portrait Widescreen)",
+    "竖向": "9:16 (Portrait Widescreen)",
+    "1:1": "1:1 (Square)",
+    "square": "1:1 (Square)",
+    "4:3": "4:3 (Standard)",
+    "3:4": "3:4 (Portrait Standard)",
+    "3:2": "3:2 (Photo)",
+    "2:3": "2:3 (Portrait Photo)",
+    "21:9": "21:9 (Ultrawide)",
+}
+
+
+def resolve_aspect(value):
+    """把 '16:9' / 'Landscape' / '横屏' 归一成 ResolutionSelector 的原生枚举值；不认识返回 None。"""
+    if not value:
+        return None
+    s = str(value).strip()
+    if s in ASPECT_ALIASES:
+        return ASPECT_ALIASES[s]
+    if "(" in s and ")" in s:
+        return s
+    return None
 COMFY_URL = "http://127.0.0.1:8188"
 
 
@@ -55,6 +89,9 @@ def load_or_init_series_bible(project_dir):
 
     default_bible = {
         "schema": "tunjing-series-bible-v4",
+        "audio_mode": "H3_native_audio",
+        "audio_reference_required": False,
+        "ref_audios": [],
         "locked_models": {
             "unet": "minimax_h3_hybrid_fl2va_ref2va_b25-49-int8.safetensors",
             "clip": "qwen3vl_32b_minimax_h3_ultra_uncensored_heretic_int8_convrot.safetensors",
@@ -65,13 +102,11 @@ def load_or_init_series_bible(project_dir):
         "characters": {
             "female_lead": {
                 "dressed_master": "female_dressed.png",
-                "nude_master": "female_nude.png",
-                "voice_ref": "female_voice.wav"
+                "nude_master": "female_nude.png"
             },
             "male_lead": {
                 "dressed_master": "male_dressed.png",
-                "nude_master": "male_nude.png",
-                "voice_ref": "male_voice.wav"
+                "nude_master": "male_nude.png"
             }
         },
         "spatial_pool": {
@@ -142,12 +177,16 @@ def sync_assets_to_comfy(project_dir, comfy_input_dir):
     return copied
 
 
-def build_shot_workflow(base_wf, shot, custom_seed=None, prefix_override=None):
+def build_shot_workflow(base_wf, shot, custom_seed=None, prefix_override=None, aspect=None, batch=None):
     import copy
+    contract = resolve_audio_contract(shot, batch)
+    validate_workflow_audio(base_wf, contract)
     wf = copy.deepcopy(base_wf)
-    ref_imgs = shot.get("ref_images", ["female_master.png", "male_master.png", "scene_main.png"])
-    while len(ref_imgs) < 3:
-        ref_imgs.append("scene_main.png")
+    validate_image_references(shot.get("ref_images"))
+    ref_imgs = list(shot["ref_images"])
+    for node in ("51", "49", "50", "265"):
+        if node not in wf:
+            raise ValueError(f"Missing required reference node {node}")
 
     if "51" in wf:
         wf["51"]["inputs"]["image"] = ref_imgs[0]
@@ -161,6 +200,8 @@ def build_shot_workflow(base_wf, shot, custom_seed=None, prefix_override=None):
     for slot_idx, node_id in extra_slot_nodes:
         port_key = f"ref_images.ref_image_{slot_idx}"
         if len(ref_imgs) > slot_idx and ref_imgs[slot_idx]:
+            if node_id not in wf:
+                raise ValueError(f"Missing extra image node {node_id}")
             if node_id in wf:
                 wf[node_id]["inputs"]["image"] = ref_imgs[slot_idx]
             if "265" in wf:
@@ -175,12 +216,25 @@ def build_shot_workflow(base_wf, shot, custom_seed=None, prefix_override=None):
     if "397" in wf and custom_seed is not None:
         wf["397"]["inputs"]["seed"] = int(custom_seed)
 
+    # 画幅（横屏/竖屏）：优先级 shot.aspect > 批次 aspect > 工作流现值。
+    # 宝典母版工作流默认 9:16，横屏项目若不带画幅会被静默出成竖屏。
+    resolved_aspect = resolve_aspect(shot.get("aspect")) or resolve_aspect(aspect)
+    if "252" in wf:
+        if resolved_aspect:
+            wf["252"]["inputs"]["aspect_ratio"] = resolved_aspect
+        if shot.get("megapixels"):
+            wf["252"]["inputs"]["megapixels"] = float(shot["megapixels"])
+        print(f"[画幅] {shot.get('shot_id')} -> {wf['252']['inputs']['aspect_ratio']} "
+              f"@ {wf['252']['inputs'].get('megapixels')}MP")
+
     if "259" in wf:
         wf["259"]["inputs"]["value"] = float(shot.get("duration", 5.0))
     if "263" in wf:
         wf["263"]["inputs"]["text"] = shot.get("prompt", "")
     if "265" in wf:
         wf["265"]["inputs"]["ref_image_size"] = "match"
+        if "frames" in shot:
+            wf["265"]["inputs"]["length"] = shot["frames"]
     if "364" in wf:
         num_m = re.search(r"(\d+)", str(shot.get("shot_id") or shot.get("id") or "1"))
         s_num = int(num_m.group(1)) if num_m else 1
@@ -209,19 +263,23 @@ def main():
     ap.add_argument("--reroll", default="", help="点名微创重摇指定镜号（逗号分隔，如 --reroll 7,19）")
     ap.add_argument("--candidates", type=int, default=1, help="每个重摇镜头生成的候选版本数（默认1，可设2~3挑片）")
     ap.add_argument("--force", action="store_true", help="忽略断点续跑缓存，强制重跑全部目标镜头")
-    ap.add_argument("--confirm-token", default="", help="监制审阅《监制五维核对签字单.md》后签发的 8 位 SHA-256 点火授权码（未提供严禁连接 ComfyUI 渲染！）")
+    ap.add_argument("--confirm-token", default="", help="审阅后使用当前状态对应的 16 位完整性令牌（未提供严禁连接 ComfyUI 渲染！）")
     args = ap.parse_args()
 
-    bj_path = os.path.join(args.project_dir, "批量任务.json")
-    if not os.path.exists(bj_path):
-        print(f"[X] 未找到 {bj_path}！")
+    try:
+        bj_path, batch, task_sha = load_task_source(args.project_dir)
+        validate_batch_metadata(batch)
+        for shot in batch["batch_shots"]:
+            resolve_audio_contract(shot, batch)
+        if not args.dry_build:
+            with open(os.path.join(args.project_dir, ".tunjing_status.json"), encoding="utf-8") as fh:
+                require_source_audit(args.project_dir, json.load(fh))
+    except (ValueError, OSError) as exc:
+        print(f"[X] 任务或门禁无效: {exc}")
         sys.exit(1)
-
+    initial_source = {"task_path": str(bj_path), "task_sha256": task_sha}
     bible, bible_path = load_or_init_series_bible(args.project_dir)
-    print(f"[✓] 已加载跨集连续性锁死账本: {bible_path}")
-
-    with open(bj_path, "r", encoding="utf-8") as f:
-        batch = json.load(f)
+    print(f"任务源: {bj_path}; SHA256={task_sha}")
     with open(DEFAULT_WF, "r", encoding="utf-8") as f:
         base_wf = json.load(f)
 
@@ -264,7 +322,7 @@ def main():
                 print(f"[X 字幕物理自检熔断] {s.get('shot_id')} 检测到 'says:' 与 '<d>' 断行（SRT字幕格式诱导）！必须同行写 'says: <d>…</d>'。拒绝提交，请回引擎重装配！")
                 sys.exit(1)
 
-        wf = build_shot_workflow(base_wf, s)
+        wf = build_shot_workflow(base_wf, s, aspect=batch.get("aspect"), batch=batch)
         out_p = os.path.join(payload_dir, f"{s.get('shot_id', 'shot')}_api.json")
         with open(out_p, "w", encoding="utf-8") as f:
             json.dump(wf, f, ensure_ascii=False, indent=2)
@@ -285,16 +343,13 @@ def main():
         print(f"[X 越权拦截] Gate 1~5 尚未全部通过 (当前仅通过: {st_data.get('passed_steps')})！严禁擅自提交渲染！")
         sys.exit(1)
 
-    # 2) 必须校验 --confirm-token 与宝典 HMAC 防伪签名一致（不是裸 SHA-256，模型算不出、伪造不了）
+    # 2) Match the current integrity token; a bundled key is not an authentication boundary.
     try:
         from tunjing_core import sign_project
         expected_token = sign_project(args.project_dir)
-    except Exception:
-        import hashlib
-        h = hashlib.sha256()
-        with open(bj_path, "rb") as bf:
-            h.update(bf.read())
-        expected_token = h.hexdigest()[:8]
+    except Exception as exc:
+        print(f"[X] 无法计算当前任务签名，拒绝降级放行: {exc}")
+        sys.exit(1)
     if args.confirm_token.strip() != expected_token:
         receipt_path = os.path.join(args.project_dir, "监制五维核对签字单.md")
         print("=" * 75)
@@ -306,6 +361,9 @@ def main():
         print("=" * 75)
         sys.exit(1)
 
+    if source_record(args.project_dir) != initial_source:
+        print("[X] 任务在准备期间发生变化，请重新核验")
+        sys.exit(1)
     try:
         stats = http_json(f"{COMFY_URL}/system_stats")
     except Exception as e:
@@ -348,7 +406,7 @@ def main():
             seed_val = random.randint(10**13, 9 * 10**14)
             ver_suffix = f"_v{c_idx}" if n_cand > 1 or reroll_set else ""
             prefix = f"{sid}{ver_suffix}"
-            wf = build_shot_workflow(base_wf, s, custom_seed=seed_val, prefix_override=prefix)
+            wf = build_shot_workflow(base_wf, s, custom_seed=seed_val, prefix_override=prefix, aspect=batch.get("aspect"), batch=batch)
 
             # 反作弊锁 4A：提交前核验本镜 3 张参考图在 ComfyUI 真实 input 目录中物理存在（彻底杜绝空占位符 0.0s 秒退）
             if input_dir and os.path.isdir(input_dir):
@@ -359,6 +417,12 @@ def main():
 
             t_start = time.time()
             print(f"\n[▶] ({idx}/{len(shots)}) 提交 {sid}{ver_suffix} | Seed={seed_val} | 姿势={s.get('pose')} | 时长={s.get('duration')}s ({s.get('frames')}f) | LoRA={s.get('lora_mystic_strength')}")
+            if source_record(args.project_dir) != initial_source:
+                raise ValueError("Task changed after audit; dispatch refused")
+            with open(status_file, encoding="utf-8") as fh:
+                require_source_audit(args.project_dir, json.load(fh))
+            if sign_project(args.project_dir) != expected_token:
+                raise ValueError("Project evidence changed after approval; dispatch refused")
             resp = http_json(f"{COMFY_URL}/prompt", method="POST", payload={"prompt": wf})
             pid = resp.get("prompt_id")
             if not pid:

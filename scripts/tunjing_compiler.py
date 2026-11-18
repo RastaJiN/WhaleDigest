@@ -14,7 +14,7 @@ import sys
 import re
 import argparse
 
-def lint_tunjing_prompt(text):
+def _lint_single_prompt(text):
     errors = []
     warnings = []
     
@@ -26,24 +26,35 @@ def lint_tunjing_prompt(text):
             
     # 2. 检查吞鲸 v4.0 必填结构锚点（正向纯净结构，不强制要求混入 NEGATIVE）
     required_blocks = [
-        (["Goal & Audio Contract:", "Goal: Generate"], "缺少 [1] Goal 目标与时长画幅声明"),
-        (["Audio rule:", "Audio rule"], "缺少 [1] Audio rule 台词与静音纪律声明"),
-        (["subject_definitions:", "Reference map"], "缺少 [2] 实体与场景槽位映射 (subject_definitions)"),
-        (["Consistency:", "Consistency"], "缺少 [3] Consistency 身份与场景一致性死锁"),
-        (["Motion quality", "Motion quality (Anti-Stiffness)"], "缺少 [3] Motion quality 防僵硬二次动作锁"),
-        (["MOTION FLOOR:", "Motion quality"], "缺少 [3b] MOTION FLOOR 底噪生命力锁"),
-        (["integrated_multimodal_description:", "detailed_description:"], "缺少 [5] 逐镜时间线主体 (integrated_multimodal_description)"),
-        (["overall_soundscape:", "overall_soundscape"], "缺少 [6] overall_soundscape 环境底噪与动作声场"),
+        (["subject_definitions:"], "missing H3 Ref2VA subject_definitions"),
+        (["summary:"], "missing H3 Ref2VA summary"),
+        (["retention_analysis:"], "missing H3 Ref2VA retention_analysis"),
+        (["detailed_description:"], "missing H3 Ref2VA detailed_description"),
+        (["overall_soundscape:"], "missing H3 Ref2VA overall_soundscape"),
+        (["non_diegetic_music:"], "missing H3 Ref2VA non_diegetic_music"),
     ]
     for markers, msg in required_blocks:
         if isinstance(markers, str): markers = [markers]
         if not any(m in text for m in markers):
             errors.append(f"结构错误：{msg}")
             
-    # 3. 检查吞鲸正向肯定句压油词
+    for marker in ("summary:", "retention_analysis:"):
+        if marker not in text:
+            errors.append(f"结构错误：缺少 {marker}")
+    if len(text.encode("utf-8")) > 8000:
+        errors.append("结构错误：单镜提示词超过 8000 UTF-8 字节")
+    if len(re.findall(r"^Camera:", text, re.MULTILINE)) != 1:
+        errors.append("结构错误：每镜必须恰有一个独立 Camera: 行")
+    positive = re.sub(r"<d>.*?</d>", "", text, flags=re.DOTALL)
+    if re.search(r"\baxis\b", positive, re.IGNORECASE):
+        warnings.append("视角轴线词仅作兼容性警告，不再阻断 H3 Ref2VA 正文")
+    if re.search(r"<d>\[Chinese\]", text) and "SPEECH:" not in text:
+        errors.append("结构错误：真实台词缺少独立 SPEECH: 行")
+
+    # 3. DE_OIL is an internal styling aid, not an H3 Ref2VA top-level requirement.
     if not re.search(r'matte velvet skin finish|powdered dry|visible fine pores', text, re.IGNORECASE):
-        errors.append("压油错误：缺少吞鲸正向肯定句压油词（authentic matte velvet skin finish, powdered dry complexion texture）！")
-        
+        warnings.append("DE_OIL styling phrase is absent; H3 Ref2VA schema validation remains valid")
+
     # 4. 检查毒性油光词
     toxic_oil = re.findall(r'(?<!non-)(?<!no )(?<!without )\b(sweat sheen|oily face|shiny plastic|vaseline skin|dewy glisten|greasy|glossy|glistening)\b', text, re.IGNORECASE)
     if toxic_oil:
@@ -97,7 +108,7 @@ def lint_tunjing_prompt(text):
             errors.append(f"镜头块 {idx_b} [R4 否定词反噬]：检测到 'OUT OF FRAME'，请改用全肯定物理切边描述（如 'The frame is tightly cropped from waist to mid-thigh, containing exclusively...'）！")
 
         # 提取画面段
-        m_vis = re.search(r'(?:integrated_multimodal_description|detailed_description):\s*(.*?)(?:\n\s*(?:Overall Soundscape:|overall_soundscape:)|\Z)', pos_no_d, re.DOTALL)
+        m_vis = re.search(r'detailed_description:\s*(.*?)(?:\n\s*overall_soundscape:|\Z)', pos_no_d, re.DOTALL)
         if m_vis:
             vis_sec = m_vis.group(1)
             shot_lines = [ln.strip() for ln in vis_sec.split("\n") if ln.strip().startswith("[Shot")]
@@ -122,6 +133,26 @@ def lint_tunjing_prompt(text):
 
     return errors, warnings
 
+
+def lint_tunjing_prompt(text):
+    """Validate a raw task prompt, including any text outside code fences."""
+    errors, warnings = _lint_single_prompt(text)
+    if "```" in text:
+        errors.append("任务 prompt 必须是原文，不能包含 Markdown 代码围栏")
+    return errors, warnings
+
+
+def lint_tunjing_document(text):
+    """Validate every fenced prompt in a human-readable Markdown document."""
+    blocks = re.findall(r"```(?:text)?[ \t]*\r?\n(.*?)```", text, re.DOTALL) or [text]
+    errors, warnings = [], []
+    for index, block in enumerate(blocks, 1):
+        errs, warns = lint_tunjing_prompt(block)
+        errors.extend(f"block {index}: {item}" for item in errs)
+        warnings.extend(f"block {index}: {item}" for item in warns)
+    return errors, warnings
+
+
 def main():
     parser = argparse.ArgumentParser(description="吞鲸 v4.0 提示词 R1~R12 体检器")
     parser.add_argument("file", help="待检测的提示词文件路径")
@@ -134,7 +165,8 @@ def main():
         print(f"读取文件失败: {e}")
         sys.exit(1)
         
-    errors, warnings = lint_tunjing_prompt(content)
+    errors, warnings = (lint_tunjing_document(content) if args.file.lower().endswith(".md")
+                        else lint_tunjing_prompt(content))
     
     print("=" * 60)
     print("🐳 吞鲸宝典 v4.0 · R1~R12 全肯定送模提示词体检报告")
@@ -154,7 +186,7 @@ def main():
         print("\n结果: FAIL (禁止提交渲染)")
         sys.exit(1)
     else:
-        print("\n结果: PASS (100% 符合吞鲸 v4.0 R1~R12 全肯定规范，可直接送入 ComfyUI)")
+        print("\n结果: PASS (文本结构检查通过；画面质量需另行验证)")
         sys.exit(0)
 
 if __name__ == "__main__":

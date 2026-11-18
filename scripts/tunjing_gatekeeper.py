@@ -8,6 +8,10 @@ import os
 import sys
 import json
 import re
+from tunjing_task_source import (load_task_source, source_record, refresh_status,
+                                 require_source_audit, TaskSourceError)
+from tunjing_compiler import lint_tunjing_prompt
+from tunjing_audio_contract import resolve_audio_contract
 
 STAGE_NAMES = {
 1: "第 1 步：角色母版与资产建库 (Asset Foundation)",
@@ -241,107 +245,34 @@ def audit_step_3(project_dir):
     return True, "分镜【拆镜密度 + 逐镜景别机位 + 纯血Ref2V单轨 + 音画咬合 + 换体位与3次交合微距 + 肉戏公式死锁】全量验收 PASS！允许进入提示词编译。"
 
 def audit_step_4(project_dir):
-    """门禁 4：吞鲸标准六段式提示词结构与正向压油核验"""
-    prompt_file = os.path.join(project_dir, "视频提示词.md")
-    if not os.path.exists(prompt_file):
-        return False, "缺少 '视频提示词.md'！请先编译送模提示词。"
-        
-    with open(prompt_file, "r", encoding="utf-8") as f:
-        content = f.read()
-        
-    # 1. 检查吞鲸引擎 吞鲸六段式标准装配器 六段式必填结构锚点 (v3.0 原厂 Full-Reference 规范)
-    required_blocks = [
-        (["Goal & Audio Contract:", "Goal: Generate"], "缺少 [1] Goal 目标与时长画幅声明"),
-        (["Audio rule:", "Audio rule"], "缺少 [1] Audio rule 台词与静音纪律声明"),
-        (["subject_definitions:", "Reference map"], "缺少 [2] 实体与场景槽位映射 (subject_definitions 或 Reference map)"),
-        (["Consistency:", "Consistency"], "缺少 [3] Consistency 身份与场景一致性死锁"),
-        (["Motion quality", "Motion quality (Anti-Stiffness)"], "缺少 [3] Motion quality 防僵硬二次动作锁"),
-        (["MOTION FLOOR:", "Motion quality"], "缺少 [3b] MOTION FLOOR 底噪生命力锁"),
-        (["integrated_multimodal_description:", "detailed_description:"], "缺少 [5] 逐镜时间线主体 (integrated_multimodal_description 或 detailed_description)"),
-        (["overall_soundscape:", "overall_soundscape"], "缺少 [6] overall_soundscape 环境底噪与动作声场"),
-    ]
-    for markers, err_msg in required_blocks:
-        if isinstance(markers, str): markers = [markers]
-        if not any(m in content for m in markers):
-            return False, f"提示词门禁未通过：{err_msg}（必须严格遵循吞鲸标准六段式结构）！"
-            
-    # 2. 检查正向肯定句压油（工作流 Node 328 零化负向，必须靠正向压油）
-    if not re.search(r'matte velvet skin finish|powdered dry|visible fine pores', content, re.IGNORECASE):
-        return False, "提示词门禁未通过：缺少【吞鲸正向肯定句压油词】（authentic matte velvet skin finish, powdered dry texture）！工作流负向通道已零化，必须正向压油！"
-        
-    # 3. 检查是否误入毒性油光词（采用负向前瞻正则，精准放行 non-greasy / without surface shine 等正向去油描述）
-    toxic_oil_match = re.search(r'(?<!non-)(?<!no )(?<!without )\b(sweat sheen|oily face|shiny plastic|vaseline skin|dewy glisten|greasy|glossy|glistening)\b', content, re.IGNORECASE)
-    if toxic_oil_match:
-        return False, f"提示词门禁未通过：检测到诱发油光蜡感的毒性词 '{toxic_oil_match.group(0)}'！请立即剔除。"
+    """Validate the prompts in the exact task selected for rendering."""
+    try:
+        task_path, batch, sha = load_task_source(project_dir)
+        issues = []
+        for index, shot in enumerate(batch["batch_shots"], 1):
+            sid = shot.get("shot_id", shot.get("id", index))
+            errors, _ = lint_tunjing_prompt(shot["prompt"])
+            issues.extend(f"{sid}: {error}" for error in errors)
+            try:
+                resolve_audio_contract(shot, batch)
+            except ValueError as exc:
+                issues.append(f"{sid}: {exc}")
+        if issues:
+            return False, f"{task_path}: " + " | ".join(issues)
+        return True, f"逐镜任务校验 PASS: {task_path}; SHA256={sha}"
+    except (ValueError, OSError) as exc:
+        return False, f"任务源读取或校验失败: {exc}"
 
-    # 3b. 拦截机械替换产生的反物理荒谬词汇
-    absurd_phrases = ['matte bodily fluids', 'dry squirting', 'powdered saliva', 'matte semen', 'matte lubrication']
-    for ap in absurd_phrases:
-        if ap in content.lower():
-            return False, f"提示词门禁未通过：检测到反物理常识的错误替换词 '{ap}'！去油仅针对皮肤表层，严禁将生理体液替换为哑光或干燥。"
-
-    # 3c. 送模代码块全文本 0 汉字盲检（剥离 <d>...</d> 后，正向 Prompt 严禁残留任何汉字防字幕烫印）
-    code_blocks = re.findall(r'```(?:text)?\s*(.*?)```', content, re.DOTALL)
-    for idx_cb, cb in enumerate(code_blocks, 1):
-        if "=== NEGATIVE ===" in cb:
-            return False, f"提示词门禁未通过：第 {idx_cb} 镜送模代码块内混入了 '=== NEGATIVE ===' 段落！Node 263 正向提示词必须 100% 剥离负面清单（防反向注意力画字幕）！"
-        sub_trig = re.findall(r'\b(subtitles?|captions?|on-screen text|burn-in text|text ban)\b', cb, re.IGNORECASE)
-        if sub_trig:
-            return False, f"提示词门禁未通过：第 {idx_cb} 镜正向文本含有字幕反向诱导词 {sorted(set(sub_trig))}！严禁在正向写 NO SUBTITLES/CAPTIONS！"
-        if re.search(r'says:\s*\n\s*<d>', cb, re.IGNORECASE):
-            return False, f"提示词门禁未通过：第 {idx_cb} 镜将 'says:' 与 '<d>' 拆成了两行（SRT字幕格式诱导）！必须同行写为 'says: <d>[Chinese]...</d>'！"
-        # 【字幕死锁 1 · 说话人真人名熔断】speaker 只认引擎原生命名女子A/男子A，含真人名必触发性别熔断
-        #   → 判画外音 + 强制闭唇 → 嘴不能动 → 模型把台词汉字画成画面字幕。这是字幕烫印的物理根因之一，代码层焊死。
-        real_name_hits = re.findall(r'(唐曼|陆骁|沈峥|许宁)', cb)
-        if real_name_hits:
-            return False, f"提示词门禁未通过：第 {idx_cb} 镜说话人声明夹带了真人名 {sorted(set(real_name_hits))}！speaker 只能写 '女子A'/'男子A'（或 <Subject 1>/<Subject 2>），严禁传唐曼/陆骁等真人名——真人名不含性别字，会触发引擎性别熔断，导致画外音+闭唇锁，嘴不能动就把台词画成字幕！"
-        # 【字幕死锁 2 · 台词必须有说话人口型锚点】每条真实台词 <d>[Chinese]…</d> 前必须紧跟 <Subject N> says / 女子A说 的口型声明
-        #   没有锚点，模型不清楚这句话是谁在开口，就会在画面里另起一行把它画出来当字幕。
-        #   正确格式：'...<Subject 1> (S1) says: <d>[Chinese]台词</d> while ...'（says: 与 <d> 同行紧接）
-        #   注意：只查 <d>[Chinese]…</d> 真实台词；跳过 header 里的文法示例 <d>...</d>（那是教 H3 语法，不含 [Chinese]）。
-        for dd in re.findall(r'<d>\[Chinese\].*?</d>', cb, re.DOTALL):
-            dd_ctx = cb[max(0, cb.find(dd) - 120):cb.find(dd)]
-            # 锚点判定：<d> 前 120 字符内存在「说话人标记 + 说话动词 + 冒号」且 says: 与 <d> 紧跟同行
-            has_anchor = re.search(r'(?:<subject\s*\d+>\s*\(?s\d+\)?|女子a|男子a|subject\s*\d+)\s*.*?(?:says|speaks|whispers|gasps|moans|murmurs)\s*:\s*$', dd_ctx, re.IGNORECASE)
-            if not has_anchor:
-                return False, f"提示词门禁未通过：第 {idx_cb} 镜存在一句真实台词 '<d>[Chinese]…</d>' 前方无说话人口型锚点（<Subject N> says / 女子A说，且 says: 与 <d> 同行）！无锚点的台词会被模型当作字幕画进画面，必须每条台词紧跟同行说话人声明。"
-        if re.findall(r'(?:,\s*,+|,\s*\.|;\s*,)', cb):
-            return False, f"提示词门禁未通过：[反作弊拦截·正则阉割残骸] 第 {idx_cb} 镜检测到 ', ,' 或 ', .' 破碎标点语法！严禁用粗暴 re.sub 挖词糊弄门禁！"
-        pos_part = cb.split("=== NEGATIVE ===")[0]
-        pos_no_d = re.sub(r'<d>.*?</d>', '', pos_part, flags=re.DOTALL)
-        zh_chars = re.findall(r'[\u4e00-\u9fff]+', pos_no_d)
-        if zh_chars:
-            return False, f"提示词门禁未通过：第 {idx_cb} 个镜头的正向送模文本（<d>标签外）检测到中文汉字残留 {zh_chars[:5]}！这会导致视觉编码器在画面底部烫印中文字幕！"
-        if re.search(r'(?:^|\n)\s*###\s+|////', pos_part):
-            return False, f"提示词门禁未通过：第 {idx_cb} 个镜头的正向送模文本混入了未截断的 Markdown 标记（### 或 ////）！"
-
-    # 4. 画外音与内心独白 (OS/Voiceover) 绝对防对口型死锁检查（对齐官方 BASE-EN §4.4 公式）
-    if re.search(r'says in an off-screen voiceover|voiceover|monologue|\bOS\b', content, re.IGNORECASE):
-        mouth_lock_patterns = [
-            r'lips remain completely closed',
-            r'bite[s]? down on',
-            r'jaw completely clamped',
-            r'lips are pressed into',
-            r'sealed around',
-            r'oral cavity is physically locked',
-            r'lips remain parted in breathless gasps',
-            r'back of her head',
-            r'viewpoint is from behind'
-        ]
-        has_mouth_lock = any(re.search(p, content, re.IGNORECASE) for p in mouth_lock_patterns)
-        if not has_mouth_lock:
-            return False, "提示词门禁未通过：检测到包含画外音/内心独白(Voiceover/OS)，但未添加【嘴部物理占位死锁】！必须采用官方公式 '<Subject N> (Sx) says in an off-screen voiceover: <d>...</d> while her/his lips remain completely closed.'"
-            
-    return True, "提示词【吞鲸标准六段式结构 + 正向肯定句压油 + OS防对口型死锁】全量验收 PASS！允许进入生成前终审。"
 
 def audit_step_5(project_dir):
     """门禁 5：生成前机器实测终审与 SHA-256 防伪签名核验（彻底废除手写假报告）"""
     import hashlib
     import tunjing_diff_audit as diff_mod
 
-    batch_file = os.path.join(project_dir, "批量任务.json")
-    if not os.path.exists(batch_file):
-        return False, "终审门禁未通过：缺少 '批量任务.json'，无法执行机器终审签名！"
+    try:
+        batch_file, _, _ = load_task_source(project_dir)
+    except (ValueError, OSError) as exc:
+        return False, f"终审门禁未通过：任务源错误: {exc}"
 
     # 自动调用 tunjing_diff_audit 进行真实盲检并签发带 SHA-256 指纹的终审报告
     rep = diff_mod.audit_project(project_dir)
@@ -349,10 +280,8 @@ def audit_step_5(project_dir):
         diff_mod.write_signed_audit_report(project_dir, rep)
         return False, f"终审门禁未通过：[机器盲检抓出 {len(rep['violations'])} 项真实违规] 首项: {rep['violations'][0]}"
 
-    report_file = os.path.join(project_dir, "审查", "生成前终审报告.md")
-    if not os.path.exists(report_file):
-        report_file = diff_mod.write_signed_audit_report(project_dir, rep)
-        diff_mod.write_producer_receipt(project_dir, rep)
+    report_file = diff_mod.write_signed_audit_report(project_dir, rep)
+    diff_mod.write_producer_receipt(project_dir, rep)
 
     with open(report_file, "r", encoding="utf-8") as f:
         content = f.read()
@@ -380,6 +309,10 @@ def audit_step_5(project_dir):
 
 def check_gate(project_dir, target_step=None):
     status = load_status(project_dir)
+    before_status = json.dumps(status, sort_keys=True)
+    refresh_status(project_dir, status)
+    if json.dumps(status, sort_keys=True) != before_status:
+        save_status(project_dir, status)
     curr = status.get("current_step", 1)
     
     if target_step is None:
@@ -407,7 +340,13 @@ def check_gate(project_dir, target_step=None):
     }
     
     if target_step in auditors:
-        ok, msg = auditors[target_step](project_dir)
+        try:
+            before_source = source_record(project_dir) if target_step in (4, 5) else None
+            ok, msg = auditors[target_step](project_dir)
+            if ok and before_source is not None and source_record(project_dir) != before_source:
+                ok, msg = False, "任务在核验过程中发生变化，请重新核验"
+        except (ValueError, OSError) as exc:
+            ok, msg = False, str(exc)
         if ok:
             print(f"\n[✓] 门禁通过: {msg}")
             if target_step in (2, 3):
@@ -423,18 +362,31 @@ def check_gate(project_dir, target_step=None):
                         print("─" * 65)
                 except Exception:
                     pass
+            if target_step in (4, 5):
+                status.setdefault("gate_sources", {})[str(target_step)] = before_source
+            if target_step not in status["passed_steps"]:
+                status["passed_steps"].append(target_step)
             if target_step == curr:
                 status["current_step"] = curr + 1
-                if curr not in status["passed_steps"]:
-                    status["passed_steps"].append(curr)
-                save_status(project_dir, status)
-                print(f"[➔] 流程已推进！当前放行权限：{STAGE_NAMES.get(status['current_step'], '全流程已完结')}")
+            save_status(project_dir, status)
+            print(f"[➔] 已保存核验证据，当前步骤: {status['current_step']}")
             return True
         else:
+            status["passed_steps"] = [s for s in status["passed_steps"] if s < target_step]
+            status["current_step"] = min(curr, target_step)
+            for key in list(status.get("gate_sources", {})):
+                if int(key) >= target_step:
+                    del status["gate_sources"][key]
+            save_status(project_dir, status)
             print(f"\n[X] 门禁拦截 (FAIL): {msg}")
             print(f"    当前步骤被阻断，修复上述问题后重新运行门禁检查。")
             return False
     elif target_step == 6:
+        try:
+            require_source_audit(project_dir, status)
+        except (ValueError, OSError) as exc:
+            print(f"[X] 当前任务尚未通过有效门禁: {exc}")
+            return False
         print("\n[✓] 前序 5 大门禁（含生成前终极自审）已全部通关！允许执行终端渲染命令 (python export_comfy_payload.py)！")
         return True
         

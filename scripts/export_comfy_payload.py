@@ -35,12 +35,19 @@ def check_comfy_health():
         return False
 
 
+from tunjing_task_source import load_task_source, require_source_audit, source_record, validate_batch_metadata
+from tunjing_audio_contract import resolve_audio_contract
+
 def verify_project_gates(project_dir):
     status_file = os.path.join(project_dir, ".tunjing_status.json")
     if not os.path.exists(status_file):
         return False, "未找到 .tunjing_status.json 状态机文件！请先运行 tunjing_gatekeeper.py 通过前 5 步门禁。"
     with open(status_file, "r", encoding="utf-8") as f:
         st = json.load(f)
+    try:
+        require_source_audit(project_dir, st)
+    except (ValueError, OSError) as exc:
+        return False, str(exc)
     passed = set(st.get("passed_steps", []))
     need = {1, 2, 3, 4, 5}
     missing = sorted(need - passed)
@@ -50,31 +57,37 @@ def verify_project_gates(project_dir):
 
 
 def verify_batch_json(project_dir):
-    bj_path = os.path.join(project_dir, "批量任务.json")
-    if not os.path.exists(bj_path):
-        return False, f"缺少 {bj_path}！请先运行 tunjing_scene.py --out-dir 生成批量任务。"
-    with open(bj_path, "r", encoding="utf-8") as f:
-        data = json.load(f)
-    if data.get("schema") != "h3-drama-task":
-        return False, "批量任务.json schema 不是 'h3-drama-task'！"
+    try:
+        bj_path, data, _ = load_task_source(project_dir)
+        validate_batch_metadata(data)
+    except (ValueError, OSError) as exc:
+        return False, str(exc)
     shots = data.get("batch_shots", [])
     if not shots:
         return False, "批量任务.json 中没有任何镜头！"
 
     total_frames = 0
     for i, s in enumerate(shots, 1):
+        try:
+            resolve_audio_contract(s, data)
+        except ValueError as exc:
+            return False, f"镜头 {i}: {exc}"
         frames = s.get("frames", 0)
+        if type(frames) is not int or not 39 <= frames <= 294:
+            return False, f"镜头 {i} frames 必须是 39~294 的整数"
         if (frames - 5) % 17 != 0:
             return False, f"镜头 {i} 帧数 {frames} 不符合 H3 公式 (frames-5)%17==0！"
         total_frames += frames
 
         ref_imgs = s.get("ref_images", [])
-        if len(ref_imgs) not in (3, 4):
+        if not isinstance(ref_imgs, list) or not 3 <= len(ref_imgs) <= 9:
             return False, f"镜头 {i} ref_images 必须为 3 槽 [女, 男, 场] 或 4 槽 [女, 男, 场, 道具]（实测 {len(ref_imgs)} 槽）！"
         # 校验核心空间锚点：槽位 2（<Picture 3>）必须非空
         if not ref_imgs[2]:
             return False, f"镜头 {i} 缺失 <Picture 3> 场景空间锚点！背景底图严禁断开！"
         for rname in ref_imgs:
+            if not isinstance(rname, str) or not rname.strip():
+                return False, f"镜头 {i} 参考图名必须是非空字符串"
             if not all(ord(c) < 128 for c in str(rname)):
                 return False, f"镜头 {i} 参考图文件名 '{rname}' 含非 ASCII 中文字符！"
             if rname in ("male_master.png", "female_master.png", "__PLACEHOLDER__"):
@@ -97,7 +110,7 @@ def verify_batch_json(project_dir):
         return False, f"全集总帧数不闭合！声明 {declared_total} 帧，实际累加 {total_frames} 帧。"
 
     return True, (f"批量任务.json 校验通过！共 {len(shots)} 个纯血 Ref2V 镜头，"
-                  f"总帧数 {total_frames} 全闭合，全部符合 (F-5)%17==0、空间锚点常驻、LoRA 动态分级与 9图3音规范。")
+                  f"总帧数 {total_frames} 全闭合，全部符合 (F-5)%17==0、空间锚点常驻、LoRA 动态分级与实际音频来源契约。")
 
 
 def main():
@@ -110,6 +123,11 @@ def main():
     print("=" * 65)
 
     if args.project_dir:
+        try:
+            initial_source = source_record(args.project_dir)
+        except (ValueError, OSError) as exc:
+            print(f"[X] {exc}")
+            sys.exit(1)
         ok_gate, msg_gate = verify_project_gates(args.project_dir)
         print(f"[{'✓' if ok_gate else 'X'}] 门禁状态: {msg_gate}")
         if not ok_gate:
@@ -120,6 +138,9 @@ def main():
         if not ok_bj:
             sys.exit(1)
 
+    if args.project_dir and source_record(args.project_dir) != initial_source:
+        print("[X] 任务在核验期间改变，请重新核验")
+        sys.exit(1)
     online = check_comfy_health()
     if online:
         print("\n[OK] 本机 ComfyUI 在线，可直接将项目目录下的 `批量任务.json` 交由 ComfyUI H3 节点队列批量渲染！")

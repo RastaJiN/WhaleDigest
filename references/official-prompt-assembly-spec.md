@@ -9,24 +9,27 @@
 
 ---
 
+> **H3 Ref2VA 输出约束（2026-11-16 修订）**：送模正文只保留 `subject_definitions`、`summary`、`retention_analysis`、`detailed_description`、`overall_soundscape`、`non_diegetic_music` 六个顶层字段。`Goal & Audio Contract`、`Audio rule`、`Voice discipline`、`Consistency`、`MOTION FLOOR` 与 `[Visual Constraints]` 属于内部工程控制，不得作为顶层正文发送给 H3。
+
+
 ## 一、吞鲸 v4.0 送模提示词 = 六段式纯英文全肯定结构（零汉字残留、零负面尾块）
 
 送入 ComfyUI `Node 263` 的正向提示词必须由以下六大英文模块顺序组成（**严禁在 `<d>...</d>` 标签外出现任何中文字符，严禁在末尾拼接 `=== NEGATIVE ===` 块**）：
 
 ```text
-[1] Goal & Audio Contract（时长、画幅、发声纪律）
-[2] Anchoring & Consistency -> subject_definitions + Audio timbre anchors（<Picture 1~3> 与 <Audio 1~2> 槽位绑定 + 家具人体高度锚点）
-[3] summary + retention_analysis（任务类型前缀 + fully_preserved / weak_reference 保留强度）
-[4] Consistency + Skin & Lighting (DE_OIL) + Motion quality + MOTION FLOOR（全肯定压油词 + 底噪生命力锁）
-[5] Integrated Multimodal Description -> Camera: + [Shot N] (分号分割先静后动运镜与动作) + SPEECH:（同行台词与闭口锁）
-[6] Overall Soundscape -> overall_soundscape + non_diegetic_music: N/A
+[1] subject_definitions (subjects, scene, and reference slots)
+[2] summary (task summary)
+[3] retention_analysis (identity and scene retention)
+[4] detailed_description (camera, timeline, action, and SPEECH)
+[5] overall_soundscape (diegetic room tone and physical foley)
+[6] non_diegetic_music (usually N/A)
 ```
 
 ---
 
 ## 二、逐段装配标准模板（与 `tunjing_core.py` 1:1 严格对齐）
 
-### [1] Goal & Audio Contract（全肯定描述，零否定词）
+### [1] Internal controls (kept outside the H3 Ref2VA body)
 
 ```text
 Goal & Audio Contract: Generate a {dur:.2f}-second {aspect} live-action cinema video with readable physical biomechanics, locked identity consistency, and synchronized native audio.
@@ -62,7 +65,7 @@ retention_analysis:
 <Subject 3>: fully_preserved for surface texture and lighting direction from <Picture 3>; weak_reference for exact camera framing.
 ```
 
-### [4] `Consistency` + 全肯定压油 (`DE_OIL`) + `MOTION FLOOR`
+### [4] `detailed_description` content controls
 
 工作流底层 `Node 328 = ConditioningZeroOut` 将负向清零，`CFG = 1.0`。正向严禁出现 `without / non- / zero / no` 等否定词，必须 100% 使用全肯定物理描述：
 
@@ -73,34 +76,26 @@ Motion quality (Anti-Stiffness): Smooth continuous human kinematics with visible
 MOTION FLOOR: Continuous organic human micro-kinematics throughout every second; visible ribcage and collarbone breathing expansion of 1 cm, subtle weight shifts across the support surface, natural hair strand micro-sway, and realistic soft-tissue recoil.
 ```
 
-### [5] `Integrated Multimodal Description`（先静后动运镜 + 分号分割 + 同行 `SPEECH:`）
+### [5] `detailed_description`（先静后动运镜 + 分号分割 + 同行 `SPEECH:`）
 
 ```text
-Integrated Multimodal Description:
-integrated_multimodal_description:
+detailed_description:
 Camera: {size_desc}, 0.00s to 1.00s holds steady locking the initial posture, then from 1.00s to {t_move_end:.2f}s {cam_desc}, holding steady for the final 0.80s.
 [Shot 1] Live-action cinematic, {size_desc}, 0.00s to 1.00s holds steady locking the initial posture, then from 1.00s to {t_move_end:.2f}s {cam_desc}, holding steady for the final 0.80s; {COMPOSITION_LOCK}From 0.00s, <Subject 1> and <Subject 2> in <Subject 3>: {action_en}.
 SPEECH: From {t_mid_start:.2f}s to {t_mid_end:.2f}s, {golden_emotion_cue}, <Subject 2> (S2) says: <d>[Chinese]{台词}</d> while <Subject 1> (S1) keeps her lips completely closed and motionless.
 ```
 
-### [6] `Overall Soundscape`
+### [6] `overall_soundscape` + `non_diegetic_music`
 
 ```text
 Overall Soundscape:
 overall_soundscape: Quiet room tone continues throughout. Rhythmic skin-on-skin collision slaps, viscous lubrication friction, heavy ragged breathing, and subtle {surf_sfx}.
 non_diegetic_music: N/A
 
-[Visual Constraints | Do Not Speak]
-(visual/audio guidance only; never voiced, never narrated)
-- only one mouth speaks in any given second; non-speaking characters keep lips softly closed and natural
-- clean full-bleed raw 35mm cinema frame with no on-screen overlays or UI elements
-- same faces, body proportions, and identity across every beat; no identity drift, no extra limbs, no ghosting
-- stable composition; cuts change framing and beat only, never identity or scene
+
 ```
 
-> 注：`[Visual Constraints | Do Not Speak]` 负向声明锚为对齐外部 H3 生态后的新增段，置于 footer 末尾。前置声明「这些是视觉约束、绝不出声不朗读」，既补视觉约束语义又压掉模型把它们念出来。**注意：此段只放反向注意力不敏感的约束语义，严禁放入 `NO SUBTITLES` / `no captions` 等字幕词根（会诱发字幕烫印）**。
-
----
+> 注：旧版 Visual Constraints footer 已从送模正文移除；视觉约束改写为 `detailed_description` 内的自然英文动作与构图句。
 
 ## 三、四大字幕烫印死刑禁令（100% 必拦截红线）
 

@@ -40,27 +40,31 @@ def _hmac_secret():
 
 
 def sign_project(project_dir):
-    """对项目的「批量任务.json + 门禁状态 + 宝典核心脚本指纹」生成 HMAC-SHA256 防伪签名（模型算不出）"""
-    batch_file = os.path.join(project_dir, "批量任务.json")
+    """Bind the integrity token to the selected task, status and validator code."""
+    from tunjing_task_source import load_task_source
+
+    batch_file, _batch, task_sha256 = load_task_source(project_dir)
+    batch_bytes = batch_file.read_bytes()
+    if _hashlib.sha256(batch_bytes).hexdigest() != task_sha256:
+        raise ValueError("Task source changed while calculating the integrity token")
     status_file = os.path.join(project_dir, ".tunjing_status.json")
-    payload = b""
-    for f in (batch_file, status_file):
-        if os.path.exists(f):
-            with open(f, "rb") as fh:
-                payload += fh.read()
-    # 反"改代码"锁：把宝典核心脚本自身指纹也纳入签名。
-    # DeepSeek 若篡改门禁/签名逻辑，脚本指纹变 → 签名变 → 对不上监制基准 → 拒绝渲染。
-    for fn in ("tunjing_gatekeeper.py", "tunjing_diff_audit.py", "tunjing_core.py", "tunjing_runner.py"):
+    payload = (str(batch_file).encode("utf-8") + b"\0" +
+               task_sha256.encode("ascii") + b"\0" + batch_bytes)
+    if os.path.exists(status_file):
+        with open(status_file, "rb") as fh:
+            payload += fh.read()
+    for fn in ("tunjing_gatekeeper.py", "tunjing_diff_audit.py", "tunjing_core.py",
+               "tunjing_runner.py", "tunjing_task_source.py", "tunjing_compiler.py",
+               "tunjing_audio_contract.py"):
         sp = os.path.join(os.path.dirname(os.path.abspath(__file__)), fn)
-        if os.path.exists(sp):
-            with open(sp, "rb") as fh:
-                payload += fh.read()
+        with open(sp, "rb") as fh:
+            payload += fn.encode("ascii") + b"\0" + fh.read()
     return _hmac.new(_hmac_secret(), payload, _hashlib.sha256).hexdigest()[:16]
 
 
 def verify_project_sign(project_dir, signature):
-    """校验签名，防 DeepSeek 伪造 PASS 结果绕过门禁渲染"""
-    return sign_project(project_dir) == signature
+    """Compare the selected task's integrity token in constant time."""
+    return isinstance(signature, str) and _hmac.compare_digest(sign_project(project_dir), signature)
 
 TEASE_IDS = {
     "trace_collar", "ear_whisper_tease", "shoulder_strap_slide", "leg_brush_tease",
@@ -584,6 +588,30 @@ def build_fullref_header(
     return parts
 
 
+def _official_ref2va_header(header):
+    """Keep only the six H3 Ref2VA top-level blocks in the model body."""
+    section = None
+    kept = []
+    official = {"subject_definitions:", "summary:", "retention_analysis:"}
+    internal = (
+        "Goal & Audio Contract:", "Audio rule:", "Voice discipline:",
+        "Anchoring & Consistency:", "Consistency:", "Skin & Lighting:",
+        "Motion quality", "MOTION FLOOR:",
+    )
+    for raw in header:
+        line = sanitize_positive_only(str(raw)).strip()
+        if line in official:
+            section = line
+            kept.append(line)
+            continue
+        if line.startswith(internal):
+            section = None
+            continue
+        if section and line:
+            kept.append(line)
+    return kept
+
+
 def sanitize_positive_only(text):
     """
     R4 正向全肯定净化器：将残留的否定短语转化为纯正面物理描述
@@ -597,6 +625,10 @@ def sanitize_positive_only(text):
         (r"LOWER\s*BODY\s*AND\s*GENITALIA\s*STRICTLY\s*OUT\s*OF\s*FRAME\.?",
          "The frame is tightly cropped from chest and collarbones up to the head, containing exclusively the upper torso, neck, and face."),
         (r"\bno exaggerated tongue protrusion\b", "tongue stays naturally inside the oral cavity"),
+        (r"\bno part ever emerging detached\b", "the anatomical junction remains continuously sealed and aligned throughout"),
+        (r"\bno lateral inversion\b", "the camera stays on the same side, preserving left-right orientation"),
+        (r"\bno side-by-side lateral split\b", "both bodies remain in the same front-to-back alignment"),
+        (r"<Subject 2>: absent_from_frame - not in frame for this tight solo angle\.?", "<Subject 2>: outside the tight solo crop while the composition centers on <Subject 1>."),
         (r"\bwithout cutting\b", "in one continuous unbroken take"),
         (r"\bno hard cuts\b", "continuous unbroken motion"),
         (r"\bwithout surface reflection\b", "with gentle matte light absorption"),
@@ -847,24 +879,11 @@ def single_shot_prompt(shot, index, total_shots, dur, size_desc, cam_desc,
         female_screen_side=female_screen_side
     )
 
-    parts = list(header)
-    parts.append("Integrated Multimodal Description:")
-    parts.append("integrated_multimodal_description:")
+    parts = _official_ref2va_header(header)
+    parts.append("detailed_description:")
     parts.append(shot_body)
-    parts.append("")
-    parts.append("Overall Soundscape:")
     parts.append("overall_soundscape: " + build_soundscape_en(scene, is_staging=is_staging))
     parts.append("non_diegetic_music: N/A")
-    # H3 负向声明锚 [Negatives Avoid | Do Not Speak]：补充视觉约束语义，同时前置声明「这些是视觉约束、绝不出声不分词」
-    #   借鉴 h3keys v209——它把负向单独成段并加 never narrate 前缀，有效压掉「模型把负向/提示词原文念出来」的隐患。
-    #   注意：这里只放「反向注意力不敏感的约束语义」，不放字幕词根（NO SUBTITLES 等），也不混入正向正文。
-    parts.append("")
-    parts.append("[Visual Constraints | Do Not Speak]")
-    parts.append("(visual/audio guidance only; never voiced, never narrated)")
-    parts.append("- only one mouth speaks in any given second; non-speaking characters keep lips softly closed and natural")
-    parts.append("- clean full-bleed raw 35mm cinema frame with no on-screen overlays or UI elements")
-    parts.append("- same faces, body proportions, and identity across every beat; no identity drift, no extra limbs, no ghosting")
-    parts.append("- stable composition; cuts change framing and beat only, never identity or scene")
     return "\n".join(parts)
 
 

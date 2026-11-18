@@ -24,6 +24,9 @@ import re
 import argparse
 import hashlib
 
+from tunjing_task_source import load_task_source
+from tunjing_compiler import lint_tunjing_prompt
+
 BASE = os.path.dirname(os.path.abspath(__file__))
 REF = os.path.join(BASE, "..", "references")
 
@@ -36,11 +39,8 @@ def load_poses_truth():
 
 def audit_project(project_dir):
     poses_db = load_poses_truth()
-    
     sb_file = os.path.join(project_dir, "分镜.md")
     pr_file = os.path.join(project_dir, "视频提示词.md")
-    batch_file = os.path.join(project_dir, "批量任务.json")
-    
     report = {
         "project": os.path.abspath(project_dir),
         "files_checked": {},
@@ -49,18 +49,18 @@ def audit_project(project_dir):
         "warnings": [],
         "diff_table": []
     }
-    
-    for f_name, f_path in [("分镜.md", sb_file), ("视频提示词.md", pr_file), ("批量任务.json", batch_file)]:
-        report["files_checked"][f_name] = os.path.exists(f_path)
-    
-    if not os.path.exists(batch_file):
-        report["violations"].append(f"缺少关键执行文件: {batch_file}")
+    for name, path in (("分镜.md", sb_file), ("视频提示词.md", pr_file)):
+        report["files_checked"][name] = os.path.exists(path)
+    try:
+        batch_file, batch_data, task_sha256 = load_task_source(project_dir)
+    except (OSError, ValueError) as exc:
+        report["violations"].append(f"任务来源无效: {exc}")
         return report
+    report["task_path"] = str(batch_file)
+    report["task_sha256"] = task_sha256
+    report["files_checked"][batch_file.name] = True
 
-    with open(batch_file, "r", encoding="utf-8") as f:
-        batch_data = json.load(f)
-    
-    shots = batch_data.get("batch_shots") or batch_data.get("shots") or []
+    shots = batch_data["batch_shots"]
     report["metrics"]["total_shots"] = len(shots)
     
     # 1. 物理帧长检查
@@ -101,6 +101,10 @@ def audit_project(project_dir):
 
     for idx, s in enumerate(shots, 1):
         prompt = s.get("prompt", "")
+        shot_id = s.get("shot_id") or s.get("id") or idx
+        prompt_errors, prompt_warnings = lint_tunjing_prompt(prompt)
+        report["violations"].extend(f"镜头 {shot_id} [逐镜编译] {msg}" for msg in prompt_errors)
+        report["warnings"].extend(f"镜头 {shot_id} [逐镜编译] {msg}" for msg in prompt_warnings)
         pose = s.get("pose", "")
         size = s.get("shot_size", "")
         
@@ -201,18 +205,19 @@ def audit_project(project_dir):
     report["metrics"]["undress_wide_risks"] = undress_wide_risks
     report["metrics"]["dialogue_repetition_count"] = len(dup_lines)
 
+    _require_report_source(project_dir, report)
     return report
 
 
+def _require_report_source(project_dir, report):
+    path, batch, sha256 = load_task_source(project_dir)
+    if report.get("task_path") != str(path) or report.get("task_sha256") != sha256:
+        raise ValueError("Task source changed since the audit; run the audit again")
+    return path, batch, sha256
+
 
 def compute_batch_sha256(project_dir):
-    batch_file = os.path.join(project_dir, "批量任务.json")
-    if not os.path.exists(batch_file):
-        return ""
-    h = hashlib.sha256()
-    with open(batch_file, "rb") as f:
-        h.update(f.read())
-    return h.hexdigest()
+    return load_task_source(project_dir)[2]
 
 
 def write_signed_audit_report(project_dir, report):
@@ -221,7 +226,7 @@ def write_signed_audit_report(project_dir, report):
     严禁任何 Agent 手写伪造全 PASS 报告！一旦存在任何 violations，自动标记为 REJECT。
     """
     import datetime
-    sha = compute_batch_sha256(project_dir)
+    task_path, _batch, sha = _require_report_source(project_dir, report)
     has_err = len(report.get("violations", [])) > 0
     verdict = "REJECT" if has_err else "PASS"
     m = report.get("metrics", {})
@@ -229,6 +234,7 @@ def write_signed_audit_report(project_dir, report):
     lines = [
         "# 吞鲸工作室 v4.0 · 生成前终审报告 (Machine-Signed Pre-Render Audit)",
         f"- 审计时间: {datetime.datetime.now(datetime.timezone.utc).isoformat()}",
+        f"- 任务来源绝对路径: `{task_path}`",
         f"- 批量任务 SHA-256 指纹: `{sha}`",
         f"- 终审总结论: **{verdict}**",
         "",
@@ -252,6 +258,7 @@ def write_signed_audit_report(project_dir, report):
     out_dir = os.path.join(project_dir, "审查")
     os.makedirs(out_dir, exist_ok=True)
     out_file = os.path.join(out_dir, "生成前终审报告.md")
+    _require_report_source(project_dir, report)
     with open(out_file, "w", encoding="utf-8") as f:
         f.write("\n".join(lines) + "\n")
     return out_file
@@ -267,16 +274,13 @@ def write_producer_receipt(project_dir, report):
     4. 台词、字数与镜头时长咬合对账
     5. 提示词语法纯净度（零 === NEGATIVE === / 零字幕词 / 零碎标点）
     """
-    batch_file = os.path.join(project_dir, "批量任务.json")
-    if not os.path.exists(batch_file):
-        return ""
-    data = json.load(open(batch_file, "r", encoding="utf-8"))
-    shots = data.get("batch_shots") or data.get("shots") or []
-    sha = compute_batch_sha256(project_dir)
+    batch_file, data, sha = _require_report_source(project_dir, report)
+    shots = data["batch_shots"]
 
     lines = [
         "# 📋 吞鲸工作室 · 监制渲染前五维核对签字单 (Producer Pre-Render Receipt)",
         f"- **项目目录**: `{os.path.abspath(project_dir)}`",
+        f"- **任务来源绝对路径**: `{batch_file}`",
         f"- **任务包 SHA-256 鎖**: `{sha}`",
         f"- **总镜数 / 总时长 / 总帧数**: {len(shots)} 镜 / {data.get('total_duration', 0)}s / {data.get('total_frames', 0)} 帧",
         f"- **机器盲检结论**: **{'✅ 0 违规通过（等待监制签字点火）' if not report.get('violations') else '❌ 存在违规（已物理锁死禁止渲染）'}**",
@@ -286,7 +290,7 @@ def write_producer_receipt(project_dir, report):
         "2. **参考图与人物对齐**: 见下方逐镜总表（单人正反打已自动将缺席异性槽替换为场景底图防鬼脸，`<Picture 3>` 全程不断开）。",
         "3. **体位与换位正确性**: 全片姿势均调用宝典 87 套原生真源矩阵，体位切换处已含物理换位过渡。",
         "4. **交合特写与阻断微距**: 表中已用 `🔥【交合微距】` 与 `⚡【阻断微距】` 高亮标出。",
-        "5. **防擅自开跑物理锁**: **未加 `--confirm-token " + sha[:8] + "` 硬件授权码，任何脚本调用 ComfyUI 均会被物理拦截拒绝执行！**",
+        "5. **提交确认**: 门禁状态保存后，运行器核验当前任务和状态对应的 16 位完整性令牌；任务哈希本身不是提交令牌。",
         "",
         "## 二、逐镜五维绑定对账总表（监制扫一眼即可拍板）",
         "| 镜号 | 时长(帧) | 景别/运镜 | 体位真源 ID | `<Picture 1>` 女槽 | `<Picture 2>` 男槽 | `<Picture 3>` 场景槽 | 特写/台词核对 |",
@@ -327,11 +331,12 @@ def write_producer_receipt(project_dir, report):
         "---",
         "### 🔐 监制点火授权指令（仅当您审阅上表满意后，下达给 Agent 执行）：",
         "```bash",
-        f"python scripts/tunjing_runner.py '{project_dir}' --confirm-token {sha[:8]}",
+        "门禁完成后，使用运行器给出的当前完整性令牌；本收据不预先签发令牌。",
         "```",
     ])
 
     out_file = os.path.join(project_dir, "监制五维核对签字单.md")
+    _require_report_source(project_dir, report)
     with open(out_file, "w", encoding="utf-8") as f:
         f.write("\n".join(lines) + "\n")
     return out_file
@@ -378,14 +383,15 @@ def main():
     args = ap.parse_args()
 
     rep = audit_project(args.project_dir)
-    if os.path.exists(os.path.join(args.project_dir, '批量任务.json')):
+    if rep.get("task_sha256"):
         write_signed_audit_report(args.project_dir, rep)
         write_producer_receipt(args.project_dir, rep)
     if args.json:
         print(json.dumps(rep, ensure_ascii=False, indent=2))
     else:
         print_audit_summary(rep)
+    return 1 if rep.get("violations") else 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
