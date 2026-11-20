@@ -18,6 +18,8 @@ import re
 import shutil
 import argparse
 import subprocess
+from tunjing_task_source import load_task_source
+from tunjing_media import find_clip, probe_media
 
 
 def _import_draft():
@@ -25,15 +27,9 @@ def _import_draft():
     try:
         import pyJianYingDraft as draft
         return draft
-    except ImportError:
-        print("[!] 未检测到 pyJianYingDraft 库，正在尝试自动安装...")
-        uv_bin = shutil.which("uv")
-        if uv_bin:
-            subprocess.check_call([uv_bin, "pip", "install", "--python", sys.executable, "pyJianYingDraft"])
-        else:
-            subprocess.check_call([sys.executable, "-m", "pip", "install", "pyJianYingDraft"])
-        import pyJianYingDraft as draft
-        return draft
+    except ImportError as exc:
+        raise RuntimeError("缺少 pyJianYingDraft，导出已停止；请先配置该依赖。") from exc
+
 
 
 
@@ -172,7 +168,7 @@ def parse_storyboard_md(sb_file):
         if not lines:
             continue
         header = lines[0]
-        shot_id_match = re.search(r"^([A-Za-z]*\d+)", header)
+        shot_id_match = re.search(r"^([A-Za-z]*\d+[A-Za-z]*)", header)
         raw_id = shot_id_match.group(1) if shot_id_match else str(len(shots) + 1)
         num_m = re.search(r"(\d+)", raw_id)
         shot_idx = int(num_m.group(1)) if num_m else (len(shots) + 1)
@@ -284,11 +280,11 @@ def parse_storyboard_md(sb_file):
 
 
 def _fmt_srt_time(sec):
-    ms = int(round((sec - int(sec)) * 1000))
-    s = int(sec) % 60
-    m = (int(sec) // 60) % 60
-    h = int(sec) // 3600
-    return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
+    total_ms = max(0, int(round(float(sec) * 1000)))
+    seconds, ms = divmod(total_ms, 1000)
+    minutes, seconds = divmod(seconds, 60)
+    hours, minutes = divmod(minutes, 60)
+    return f"{hours:02d}:{minutes:02d}:{seconds:02d},{ms:03d}"
 
 
 def export_srt_file(shots, out_srt_path):
@@ -357,12 +353,31 @@ def export_to_jianying(project_dir=None, storyboard_file=None, draft_name=None,
     if not shots:
         raise ValueError("分镜中未解析出任何有效镜头！")
 
-    srt_path = os.path.join(project_dir, '全集卡点字幕.srt')
-    n_subs = export_srt_file(shots, srt_path)
-    print(f'[✓] 已同步生成剪映通用毫秒级卡点字幕 ({n_subs} 条): {srt_path}')
     if dry_run:
         print_dryrun_summary(sb_file, shots)
         return None
+
+    # 1. 扫描渲染视频文件
+    search_dirs = [
+        video_dir,
+        os.path.join(project_dir, "04_母带精修缓存"),
+        os.path.join(project_dir, "02_成片输出"),
+        os.path.join(project_dir, "output"),
+        os.path.join(project_dir, "renders"),
+        os.path.join(project_dir, "batch"),
+        project_dir
+    ]
+    search_dirs = [d for d in search_dirs if d and os.path.exists(d)]
+
+    for shot in shots:
+        matched = find_clip(search_dirs, shot["id"])
+        if not matched:
+            raise FileNotFoundError(f"当前镜头缺少主版本视频: {shot['id']}")
+        media = probe_media(matched)
+        actual = float(media.get("format", {}).get("duration", shot["duration"]))
+        actual = next((float(stream["duration"]) for stream in media["streams"] if stream.get("codec_type") == "video" and stream.get("duration")), actual)
+        shot["duration"] = min(float(shot["duration"]), actual)
+        shot["video_path"] = matched
 
     draft = _import_draft()
 
@@ -389,22 +404,16 @@ def export_to_jianying(project_dir=None, storyboard_file=None, draft_name=None,
 
     # 竖屏漫剧标准画幅 9:16 (1080x1920)
     # 预先显式初始化视频轨、音频轨与文本字幕轨并保存轨道引用 (TrackRef)
-    script = folder.create_draft(draft_name, 1080, 1920, allow_replace=True)
+    try:
+        _, active_batch, _ = load_task_source(project_dir)
+        aspect = str(active_batch.get("aspect", "9:16")).lower()
+    except (OSError, ValueError):
+        aspect = "16:9" if "16:9" in open(sb_file, encoding="utf-8").read() else "9:16"
+    width, height = (1920, 1080) if aspect in ("16:9", "landscape", "horizontal") or aspect.startswith("16:9") else (1080, 1920)
+    script = folder.create_draft(draft_name, width, height, allow_replace=True)
     v_track_ref = script.append_track(draft.TrackSpec(draft.TrackType.video, name="视频轨"))
     a_track_ref = script.append_track(draft.TrackSpec(draft.TrackType.audio, name="音频轨"))
     t_track_ref = script.append_track(draft.TrackSpec(draft.TrackType.text, name="字幕轨"))
-
-    # 1. 扫描渲染视频文件
-    search_dirs = [
-        video_dir,
-        os.path.join(project_dir, "04_母带精修缓存"),
-        os.path.join(project_dir, "02_成片输出"),
-        os.path.join(project_dir, "output"),
-        os.path.join(project_dir, "renders"),
-        os.path.join(project_dir, "batch"),
-        project_dir
-    ]
-    search_dirs = [d for d in search_dirs if d and os.path.exists(d)]
 
     current_us = 0  # 剪映内部时间单位为微秒 (1s = 1,000,000 us)
 
@@ -413,23 +422,7 @@ def export_to_jianying(project_dir=None, storyboard_file=None, draft_name=None,
         shot_tag = s["id"]
 
         # 查找对应视频文件
-        matched_mp4 = None
-        for sd in search_dirs:
-            for f in sorted(os.listdir(sd)):
-                fl = f.lower()
-                if fl.endswith((".mp4", ".mov", ".webm")) and (
-                    shot_tag.lower() in fl
-                    or f"shot_{s['index']:03d}" in fl
-                    or f"shot_{s['index']:02d}" in fl
-                    or f"shot_{s['index']}." in fl
-                    or f"shot-{s['index']:03d}" in fl
-                    or f"shot-{s['index']:02d}" in fl
-                ):
-                    matched_mp4 = os.path.join(sd, f)
-                    if fl.endswith("-audio.mp4"):
-                        break  # 优先取带音轨的 -audio.mp4
-            if matched_mp4:
-                break
+        matched_mp4 = s["video_path"]
 
         # 挂载视频轨道
         if matched_mp4 and os.path.exists(matched_mp4):
@@ -454,6 +447,9 @@ def export_to_jianying(project_dir=None, storyboard_file=None, draft_name=None,
             print(f"  [+] {shot_tag} 字幕已卡点: 「{s['speech']}」")
 
         current_us += dur_us
+
+    srt_path = os.path.join(project_dir, "全集卡点字幕.srt")
+    export_srt_file(shots, srt_path)
 
     # 保存草稿并自动写入剪映 root_meta_info.json 首页总索引
     script.save()

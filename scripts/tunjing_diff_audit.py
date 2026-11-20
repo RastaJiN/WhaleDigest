@@ -24,8 +24,9 @@ import re
 import argparse
 import hashlib
 
-from tunjing_task_source import load_task_source
-from tunjing_compiler import lint_tunjing_prompt
+from tunjing_task_source import load_task_source, source_record, validate_batch_metadata
+from tunjing_compiler import lint_tunjing_prompt, parse_prompt_sections, strip_dialogue
+from tunjing_audio_contract import resolve_audio_contract
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 REF = os.path.join(BASE, "..", "references")
@@ -58,6 +59,11 @@ def audit_project(project_dir):
         return report
     report["task_path"] = str(batch_file)
     report["task_sha256"] = task_sha256
+    report["source_record"] = source_record(project_dir)
+    try:
+        validate_batch_metadata(batch_data)
+    except ValueError as exc:
+        report["violations"].append(f"任务元数据错误: {exc}")
     report["files_checked"][batch_file.name] = True
 
     shots = batch_data["batch_shots"]
@@ -67,7 +73,7 @@ def audit_project(project_dir):
     frame_pass = 0
     for s in shots:
         frames = s.get("frames", 0)
-        if frames >= 5 and (frames - 5) % 17 == 0:
+        if isinstance(frames, int) and not isinstance(frames, bool) and 39 <= frames <= 294 and (frames - 5) % 17 == 0:
             frame_pass += 1
         else:
             report["violations"].append(f"镜头 {s.get('id')} 帧数 {frames} 违反 5+17*N 物理公式！")
@@ -88,16 +94,6 @@ def audit_project(project_dir):
                 "sixty_nine", "cunnilingus", "sofa_cunni", "fingering", "clit_tease",
                 "tip_lick", "ball_lick", "penis_slap", "handjob", "titjob"}
 
-    required_anchors = [
-        ("Goal & Audio Contract:", "Goal:"),
-        ("Audio rule:",),
-        ("subject_definitions:", "Reference map"),
-        ("Consistency:",),
-        ("Motion quality",),
-        ("MOTION FLOOR:", "Motion quality"),
-        ("integrated_multimodal_description:", "detailed_description:"),
-        ("overall_soundscape:",),
-    ]
 
     for idx, s in enumerate(shots, 1):
         prompt = s.get("prompt", "")
@@ -117,7 +113,7 @@ def audit_project(project_dir):
         # 反作弊检查 B：拦截 === NEGATIVE === 与 NO SUBTITLES 反向诱导词、以及 re.sub 标点残骸
         if "=== NEGATIVE ===" in prompt:
             report["violations"].append(f"镜头 {s.get('id')} [正向混入NEGATIVE]：正向 prompt 混入 === NEGATIVE === 块！")
-        pos_no_d = re.sub(r"<d>.*?</d>", "", prompt, flags=re.DOTALL)
+        pos_no_d = strip_dialogue(prompt)
         if re.findall(r"\b(subtitles?|captions?|on-screen text|burn-in text|text ban)\b", pos_no_d, re.IGNORECASE):
             report["violations"].append(f"镜头 {s.get('id')} [字幕反向诱导词]：正向 prompt 含 SUBTITLES/CAPTIONS 词根！")
         if re.findall(r"(?:,\s*,+|,\s*\.|;\s*,)", pos_no_d):
@@ -133,11 +129,15 @@ def audit_project(project_dir):
                 report["violations"].append(f"镜头 {s.get('id')} [单人正反打未隔离异性槽]：正文声明为单人正反打，但 ref_images {ref_imgs[:3]} 同时挂了男女双人母版（未将缺席方替换为场景图）！")
 
         # 结构检查
-        anchors_present = sum(1 for grp in required_anchors if any(a in prompt for a in grp))
-        if anchors_present >= 7:
+        sections, section_errors = parse_prompt_sections(prompt)
+        if not section_errors:
             struct_pass += 1
         else:
-            report["violations"].append(f"镜头 {s.get('id')} 六段式结构缺失 (仅命中 {anchors_present}/8 锚点)")
+            report["violations"].append(f"镜头 {shot_id} 六段式结构缺失: {section_errors}")
+        try:
+            resolve_audio_contract(s, batch_data)
+        except ValueError as exc:
+            report["violations"].append(f"镜头 {shot_id} 音频契约错误: {exc}")
 
         # 首镜脱衣景别安全
         if idx == 1 and "undress" in pose:
@@ -154,9 +154,9 @@ def audit_project(project_dir):
 
         # 检查台词（排除说明文字中的 <d>...</d> 规则）
         prompt_without_rule = re.sub(r"Audio rule:.*?\n", "", prompt)
-        d_match = re.search(r"<d>(?:\[Chinese\])?(.*?)</d>", prompt_without_rule)
-        if d_match:
-            line_text = d_match.group(1).strip()
+        d_matches = re.finditer(r"<d>(.*?)</d>", prompt_without_rule, re.IGNORECASE | re.DOTALL)
+        for d_match in d_matches:
+            line_text = re.sub(r"^\s*\[[^\]\r\n]+\]\s*", "", d_match.group(1)).strip()
             if first_p in ("bj", "deepthroat", "facefuck", "cum_face") and "女子" in prompt:
                 report["violations"].append(f"镜头 {s.get('id')} ({pose}) 女方嘴部被占用，但排了女方对白！")
             if "HEADS, FACES, AND UPPER TORSO ARE STRICTLY OUT OF FRAME" in prompt and "off-screen voiceover" not in prompt:
@@ -184,7 +184,9 @@ def audit_project(project_dir):
     # 2b. 剧本台词完整性契约（核对 剧本.md / 分镜.md 中的台词是否在送模提示词中零遗漏）
     if os.path.exists(sb_file):
         sb_content = open(sb_file, "r", encoding="utf-8").read()
-        sb_lines_all = [x.strip() for x in re.findall(r"<d>(?:\[Chinese\])?(.*?)</d>", sb_content) if x.strip()]
+        sb_lines_all = [re.sub(r"^\s*\[[^\]\r\n]+\]\s*", "", x).strip()
+                        for x in re.findall(r"<d>(.*?)</d>", sb_content, re.IGNORECASE | re.DOTALL)]
+        sb_lines_all = [x for x in sb_lines_all if x]
         prompt_lines_set = {x[1] for x in spoken_dialogues}
         missing_lines = [ln for ln in sb_lines_all if ln not in prompt_lines_set]
         if missing_lines:
@@ -211,8 +213,8 @@ def audit_project(project_dir):
 
 def _require_report_source(project_dir, report):
     path, batch, sha256 = load_task_source(project_dir)
-    if report.get("task_path") != str(path) or report.get("task_sha256") != sha256:
-        raise ValueError("Task source changed since the audit; run the audit again")
+    if report.get("task_path") != str(path) or report.get("task_sha256") != sha256 or report.get("source_record") != source_record(project_dir):
+        raise ValueError("Task, project inputs, or validation code changed since the audit; run the audit again")
     return path, batch, sha256
 
 
@@ -241,8 +243,8 @@ def write_signed_audit_report(project_dir, report):
         "## 六大维度机器实测核验记录",
         f"1. 资产实名与槽位: {'PASS' if not any('槽位' in v or '占位符' in v for v in report['violations']) else 'REJECT'}",
         f"2. 音画台词咬合: {'PASS' if not any('台词' in v for v in report['violations']) else 'REJECT'}",
-        f"3. 换体位与特写契约: {'PASS' if not any('体位' in v or '特写' in v for v in report['violations']) else 'REJECT'} (帧合规: {m.get('frame_compliance')})",
-        f"4. 受控运镜规范: {'PASS' if not any('运镜' in v for v in report['violations']) else 'REJECT'}",
+        f"3. 换体位与特写契约: {'REJECT' if any('体位' in v or '特写' in v for v in report['violations']) else 'NOT_EVALUATED (创作质量需人工审查)'} (帧合规: {m.get('frame_compliance')})",
+        f"4. 受控运镜规范: {'REJECT' if any('运镜' in v for v in report['violations']) else 'NOT_EVALUATED (画面效果需实测)'}",
         f"5. 提示词纯净度: {'PASS' if not has_err else 'REJECT'} (真源纯度: {m.get('truth_purity')})",
         f"6. 纯血Ref2V单轨规范: {'PASS' if m.get('structure_compliance', '').startswith(str(m.get('total_shots', 0))) else 'REJECT'} ({m.get('structure_compliance')})",
         "",
@@ -304,7 +306,7 @@ def write_producer_receipt(project_dir, report):
         sz = s.get("shot_size") or s.get("size", "")
         cam = s.get("camera_motion") or s.get("camera", "")
         pose = s.get("pose") or s.get("pose_id", "")
-        refs = s.get("ref_images", ["-", "-", "-"])
+        refs = list(s.get("ref_images", ["-", "-", "-"]))
         while len(refs) < 3:
             refs.append("-")
 

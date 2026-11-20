@@ -114,78 +114,85 @@ def load_task_source(project_dir):
     return path, batch, hashlib.sha256(raw).hexdigest()
 
 
+
 def source_record(project_dir):
+    """Bind exact task bytes, upstream inputs, manifest selection and validators."""
     path, _, digest = load_task_source(project_dir)
-    return {"task_path": str(path), "task_sha256": digest}
+    root = Path(project_dir).resolve()
+    return {"task_path": str(path), "task_sha256": digest,
+            "project_inputs": _input_fingerprints(root, include_manifest=True),
+            "validation_sources": _validation_fingerprints()}
+
 
 
 def refresh_status(project_dir, status):
-    """Invalidate task-dependent gates in place when source evidence is stale.
-
-    Source errors also revoke dependent gates and are recorded for the caller,
-    allowing it to persist the revoked state before displaying the error.
-    """
+    """Revoke the earliest stage whose inputs or validation rules have changed."""
     if not isinstance(status, dict):
         raise TaskSourceError("Gate status must be a JSON object")
-    try:
-        current = source_record(project_dir)
-        status.pop("source_error", None)
-    except (TaskSourceError, OSError, ValueError) as exc:
-        current = None
-        status["source_error"] = str(exc)
     passed = status.get("passed_steps", [])
     if not isinstance(passed, list):
         passed = []
-    gate_sources = status.get("gate_sources", {})
-    if not isinstance(gate_sources, dict):
-        gate_sources = {}
-    stale = current is None or any(
-        step in passed and gate_sources.get(str(step)) != current
-        for step in (4, 5)
-    )
-    # A later gate cannot be current while its task audit records are absent.
+    passed = sorted({step for step in passed if type(step) is int and 1 <= step <= 6})
+    status["passed_steps"] = passed
+    sources = status.get("gate_sources", {})
+    if not isinstance(sources, dict):
+        sources = {}
+    sources = {str(key): value for key, value in sources.items() if str(key).isdigit() and 1 <= int(key) <= 6}
+    status["gate_sources"] = sources
     try:
         current_step = int(status.get("current_step", 1))
     except (TypeError, ValueError):
         current_step = 1
-    required_prior_gates = tuple(step for step in (4, 5) if step < current_step)
-    if required_prior_gates and not all(
-        step in passed and gate_sources.get(str(step)) == current
-        for step in required_prior_gates
-    ):
-        stale = True
-    if stale:
-        status["passed_steps"] = [step for step in passed if step not in (4, 5, 6)]
-        status["current_step"] = min(current_step, 4)
-        status["gate_sources"] = {
-            key: value for key, value in gate_sources.items() if str(key) not in ("4", "5", "6")
-        }
+    current_step = max(1, min(current_step, 6))
+    status["current_step"] = current_step
+    earliest = None
+    for step in (1, 2, 3, 4, 5):
+        if step not in passed:
+            if step < current_step:
+                earliest = step
+                break
+            continue
+        try:
+            current = gate_evidence(project_dir, step)
+            if sources.get(str(step)) != current:
+                earliest = step
+                break
+        except (TaskSourceError, OSError, ValueError) as exc:
+            status["source_error"] = str(exc)
+            earliest = step
+            break
+    if earliest is not None:
+        status["passed_steps"] = [step for step in passed if step < earliest]
+        status["current_step"] = min(current_step, earliest)
+        status["gate_sources"] = {key: value for key, value in sources.items() if int(key) < earliest}
+    else:
+        status.pop("source_error", None)
     return status
 
 
+
 def require_source_audit(project_dir, status):
-    """Reject missing/stale gate 4 and 5 evidence for the selected task."""
+    """Require current, bound evidence for all five prerequisite gates."""
     if not isinstance(status, dict):
         raise TaskSourceError("Gate status must be a JSON object")
-    current = source_record(project_dir)
-    passed = status.get("passed_steps", [])
-    sources = status.get("gate_sources", {})
+    passed, sources = status.get("passed_steps", []), status.get("gate_sources", {})
     if not isinstance(passed, list) or not isinstance(sources, dict):
         raise TaskSourceError("Invalid task audit status")
-    if not {1, 2, 3, 4, 5}.issubset(set(passed)):
+    if not all(step in passed for step in (1, 2, 3, 4, 5)):
         raise TaskSourceError("Project gates 1 through 5 must all have passed")
-    for step in (4, 5):
-        if step not in passed:
-            raise TaskSourceError("Task audit gate " + str(step) + " has not passed")
-        if sources.get(str(step)) != current:
-            raise TaskSourceError("Task audit gate " + str(step) + " is stale or unbound")
-    return current
+    for step in (1, 2, 3, 4, 5):
+        if sources.get(str(step)) != gate_evidence(project_dir, step):
+            raise TaskSourceError(f"Task audit gate {step} is stale or unbound; rerun that gate")
+    return source_record(project_dir)
+
 
 
 def validate_batch_metadata(batch):
-    """Validate dispatch metadata without changing prompts or caller objects."""
+    """Validate the same frame, duration and image contract at every gate."""
     if not isinstance(batch, dict) or not isinstance(batch.get("batch_shots"), list) or not batch["batch_shots"]:
         raise TaskSourceError("A nonempty batch_shots list is required")
+    if "fps" in batch and (type(batch["fps"]) not in (int, float) or batch["fps"] != 24):
+        raise TaskSourceError("H3 task fps must be 24")
     total = 0
     for index, shot in enumerate(batch["batch_shots"], 1):
         if not isinstance(shot, dict):
@@ -196,14 +203,173 @@ def validate_batch_metadata(batch):
         duration = shot.get("duration")
         if type(duration) not in (int, float) or not math.isfinite(duration) or abs(duration - frames / 24) > 0.021:
             raise TaskSourceError(f"Shot {index}: duration must agree with frames at 24 fps")
-        validate_image_references(shot.get("ref_images"))
+        refs = shot.get("ref_images")
+        validate_image_references(refs)
+        declared = shot.get("references")
+        if declared is not None and (not isinstance(declared, list) or len(declared) != len(refs) or any(not isinstance(item, str) or not item.strip() for item in declared)):
+            raise TaskSourceError(f"Shot {index}: references must correspond to the ordered ref_images slots")
+        prompt = shot.get("prompt", "")
+        if not isinstance(prompt, str):
+            raise TaskSourceError(f"Shot {index}: prompt must be a string")
+        # Quoted speech cannot invent image bindings.
+        positive = re.sub(r"<d>.*?</d>", "", prompt, flags=re.DOTALL | re.IGNORECASE)
+        pictures = [int(value) for value in re.findall(r"<Picture\s+(\d+)>", positive)]
+        if any(not 1 <= value <= len(refs) for value in pictures):
+            raise TaskSourceError(f"Shot {index}: prompt Picture reference has no corresponding ref_images slot")
         total += frames
     if "total_frames" in batch and (type(batch["total_frames"]) is not int or batch["total_frames"] != total):
         raise TaskSourceError("Declared total_frames does not match the shot frames")
+    if "total_duration" in batch:
+        duration = batch["total_duration"]
+        if type(duration) not in (int, float) or not math.isfinite(duration) or abs(duration - total / 24) > 0.021:
+            raise TaskSourceError("Declared total_duration does not match total_frames at 24 fps")
+
 
 
 def validate_image_references(refs):
     if not isinstance(refs, list) or not 3 <= len(refs) <= 9:
         raise TaskSourceError("ref_images must contain 3 to 9 ordered image filenames")
-    if any(not isinstance(ref, str) or not ref.strip() or not ref.isascii() for ref in refs):
-        raise TaskSourceError("Image filenames must be nonempty ASCII strings")
+    for ref in refs:
+        if not isinstance(ref, str) or not ref.strip() or ref != ref.strip() or not ref.isascii():
+            raise TaskSourceError("Image filenames must be nonempty, trimmed ASCII strings")
+        win = PureWindowsPath(ref)
+        normalized = ref.replace("\\", "/")
+        if win.drive or win.root or normalized.startswith("/") or any(part in ("", ".", "..") for part in normalized.split("/")):
+            raise TaskSourceError("Image references must be relative filenames without path traversal")
+
+
+_VALIDATOR_NAMES = ("tunjing_task_source.py", "tunjing_compiler.py", "tunjing_gatekeeper.py",
+                    "tunjing_diff_audit.py", "tunjing_audio_contract.py", "tunjing_core.py")
+
+
+def _file_digest(path):
+    if not path.is_file():
+        return None
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _validation_fingerprints():
+    base = Path(__file__).resolve().parent
+    return {name: _file_digest(base / name) for name in _VALIDATOR_NAMES}
+
+
+def _input_fingerprints(root, include_manifest=False):
+    records = {"剧本.md": _file_digest(root / "剧本.md"), "分镜.md": _file_digest(root / "分镜.md")}
+    assets = root / "00_资产"
+    records["00_资产/"] = "directory" if assets.is_dir() else None
+    if assets.is_dir():
+        for path in sorted(assets.rglob("*")):
+            if path.is_file():
+                records[path.relative_to(root).as_posix()] = _file_digest(path)
+    if include_manifest:
+        records[MANIFEST_NAME] = _file_digest(root / MANIFEST_NAME)
+    return records
+
+
+def stage_record(project_dir, step):
+    root = Path(project_dir).resolve()
+    inputs = _input_fingerprints(root)
+    if step == 1:
+        inputs = {key: value for key, value in inputs.items() if key.startswith("00_资产/")}
+    elif step == 2:
+        inputs = {"剧本.md": inputs["剧本.md"]}
+    elif step == 3:
+        inputs = {"分镜.md": inputs["分镜.md"]}
+    else:
+        raise TaskSourceError("stage_record expects a gate from 1 to 3")
+    return {"stage": step, "project_inputs": inputs, "validation_sources": _validation_fingerprints()}
+
+
+def gate_evidence(project_dir, step):
+    if step in (1, 2, 3):
+        return stage_record(project_dir, step)
+    current = source_record(project_dir)
+    if step == 5:
+        report = Path(project_dir).resolve() / "审查" / "生成前终审报告.md"
+        digest = _file_digest(report)
+        if digest is None:
+            raise TaskSourceError("Gate 5 audit report is missing; run gate 5 again")
+        current = dict(current, audit_report_path=str(report), audit_report_sha256=digest)
+    return current
+
+
+def validate_asset_image(path):
+    """Decode PNG scanlines using stdlib; use Pillow for other supported images."""
+    import struct
+    import zlib
+    path = Path(path)
+    if not path.is_file() or path.stat().st_size == 0:
+        raise TaskSourceError(f"Asset image is missing or empty: {path.name}")
+    raw = path.read_bytes()
+    if not raw.startswith(b"\x89PNG\r\n\x1a\n"):
+        try:
+            from PIL import Image
+        except ImportError as exc:
+            raise TaskSourceError(f"Cannot decode asset {path.name}; use a valid PNG or install Pillow for this image format") from exc
+        try:
+            with Image.open(path) as image:
+                image.load()
+                if image.width <= 0 or image.height <= 0:
+                    raise ValueError("invalid image size")
+        except Exception as exc:
+            raise TaskSourceError(f"Asset is not a decodable image: {path.name}: {exc}") from exc
+        return
+    offset, header, data, ended, palette = 8, None, bytearray(), False, False
+    while offset < len(raw):
+        if offset + 12 > len(raw):
+            raise TaskSourceError(f"Truncated PNG chunk: {path.name}")
+        size = struct.unpack(">I", raw[offset:offset + 4])[0]
+        kind = raw[offset + 4:offset + 8]
+        payload = raw[offset + 8:offset + 8 + size]
+        end = offset + 12 + size
+        if end > len(raw) or len(payload) != size:
+            raise TaskSourceError(f"Truncated PNG payload: {path.name}")
+        expected_crc = struct.unpack(">I", raw[offset + 8 + size:end])[0]
+        if zlib.crc32(kind + payload) & 0xffffffff != expected_crc:
+            raise TaskSourceError(f"Invalid PNG checksum: {path.name}")
+        if header is None and kind != b"IHDR":
+            raise TaskSourceError(f"PNG does not start with IHDR: {path.name}")
+        if kind == b"IHDR":
+            if header is not None or size != 13:
+                raise TaskSourceError(f"Invalid PNG IHDR: {path.name}")
+            header = struct.unpack(">IIBBBBB", payload)
+        elif kind == b"IDAT":
+            data.extend(payload)
+        elif kind == b"PLTE":
+            palette = size > 0 and size % 3 == 0 and size <= 768
+        elif kind == b"IEND":
+            if size or end != len(raw):
+                raise TaskSourceError(f"Invalid PNG end marker: {path.name}")
+            ended = True
+            break
+        offset = end
+    if not ended or header is None or not data:
+        raise TaskSourceError(f"Incomplete PNG image: {path.name}")
+    width, height, depth, color, compression, filtering, interlace = header
+    depths = {0: (1, 2, 4, 8, 16), 2: (8, 16), 3: (1, 2, 4, 8), 4: (8, 16), 6: (8, 16)}
+    if width <= 0 or height <= 0 or color not in depths or depth not in depths[color] or compression or filtering or interlace not in (0, 1) or (color == 3 and not palette):
+        raise TaskSourceError(f"Unsupported or invalid PNG header: {path.name}")
+    channels = {0: 1, 2: 3, 3: 1, 4: 2, 6: 4}[color]
+    passes = [(0, 0, 1, 1)] if not interlace else [(0, 0, 8, 8), (4, 0, 8, 8), (0, 4, 4, 8), (2, 0, 4, 4), (0, 2, 2, 4), (1, 0, 2, 2), (0, 1, 1, 2)]
+    layouts = []
+    for x, y, dx, dy in passes:
+        pw = max(0, (width - x + dx - 1) // dx)
+        ph = max(0, (height - y + dy - 1) // dy)
+        if pw and ph:
+            layouts.append(((pw * channels * depth + 7) // 8 + 1, ph))
+    expected = sum(stride * count for stride, count in layouts)
+    if expected > 268435456:
+        raise TaskSourceError(f"PNG decoded size exceeds validation limit: {path.name}")
+    try:
+        decoder = zlib.decompressobj()
+        decoded = decoder.decompress(bytes(data), expected + 1)
+    except zlib.error as exc:
+        raise TaskSourceError(f"Invalid PNG pixel stream: {path.name}") from exc
+    if len(decoded) != expected or not decoder.eof or decoder.unconsumed_tail or decoder.unused_data:
+        raise TaskSourceError(f"PNG pixel data length is invalid: {path.name}")
+    offset = 0
+    for stride, count in layouts:
+        for _ in range(count):
+            if decoded[offset] > 4:
+                raise TaskSourceError(f"Invalid PNG row filter: {path.name}")
+            offset += stride

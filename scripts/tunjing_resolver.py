@@ -11,9 +11,10 @@
     python tunjing_resolver.py "扣女穴"          # 指插
     python tunjing_resolver.py "女上位"          # 骑乘
     python tunjing_resolver.py --list            # 列出全部 55 套可用动作
-    python tunjing_resolver.py --scene "..."     # 整段床戏剧本自动拆解生成全部提示词
+    python tunjing_resolver.py --scene "..." --aspect 16:9  # 整段床戏剧本按横屏拆解
 """
 
+import argparse
 import json
 import sys
 import os
@@ -125,27 +126,34 @@ def resolve(query):
     return None, None
 
 
-def render_prompt(pid, entry):
-    """把矩阵条目渲染成完整可直接送模的 Ref2V 提示词"""
-    lines = []
-    lines.append(f"### [{pid}] {entry.get('nameZh','')} ({entry.get('nameEn','')})")
-    framing = entry.get("framingEn") or entry.get("framingZh", "")
-    lines.append(f"\n[Framing] {framing}")
-    lines.append(f"[Skin & Lighting] {DE_OIL}")
-    beats = entry.get("beatsEn") or []
-    if beats:
-        lines.append("[Momentum]")
-        lines.append(" - ".join(beats))
-    sfx = entry.get("sfxEn") or []
-    if sfx:
-        lines.append(f"[SFX] {', '.join(sfx) if isinstance(sfx, list) else sfx}")
+def render_prompt(pid, entry, dur=10.0, aspect="9:16"):
+    """Format a matrix entry with the current shared Ref2VA schema."""
+    from tunjing_core import single_shot_prompt, dialogue_needed_seconds
+    if not 0 < dur <= 12.25:
+        raise ValueError("Single-shot duration must be within 0..12.25 seconds")
     line = entry.get("lineZh") or ""
-    if line:
-        lines.append(f"[Line] <d>[Chinese]{line}</d>")
-    return "\n".join(lines)
+    if dialogue_needed_seconds(line) > dur + 0.021:
+        raise ValueError("Dialogue exceeds the single-shot duration")
+    normalized_aspect = _validated_aspect(aspect)
+    framing = entry.get("framingEn") or entry.get("framingZh") or "medium close-up"
+    # Canvas geometry must not replace the matrix's subject count or shot scale.
+    framing += f"; canvas aspect ratio {normalized_aspect}, preserving the specified shot scale and subject arrangement"
+    camera_motion = "continuous subtle camera movement"
+    beats = entry.get("beatsEn") or entry.get("beatsZh") or []
+    if isinstance(beats, str):
+        beats = [beats]
+    shot = {"pose": pid, "size": "mcu", "text_en": "; ".join(beats)}
+    prompt = single_shot_prompt(shot, 0, 1, dur, framing, camera_motion,
+                                lines=line, scene=entry.get("sceneEn") or "current room", aspect=normalized_aspect)
+    sfx = entry.get("sfxEn") or []
+    if isinstance(sfx, str):
+        sfx = [sfx]
+    if sfx:
+        prompt = prompt.replace("overall_soundscape: ", "overall_soundscape: " + ", ".join(sfx) + "; ", 1)
+    return prompt
 
 
-def resolve_scene(text):
+def resolve_scene(text, aspect="9:16"):
     """整段床戏剧本 -> 按顺序自动拆解出每个动作的提示词"""
     m = load_matrix()
     # 按常见标点/换行切分动作片段
@@ -157,50 +165,78 @@ def resolve_scene(text):
             continue
         pid, entry = resolve(seg)
         if pid and entry:
-            results.append((seg, pid, render_prompt(pid, entry)))
+            results.append((seg, pid, render_prompt(pid, entry, aspect=aspect)))
         else:
             results.append((seg, None, f"[!] 无法识别动作：{seg}（请查 --list 确认）"))
     return results
 
 
-def main():
-    m = load_matrix()
-    if "--list" in sys.argv:
-        print(f"吞鲸宝典 · 可实时响应的 {len(m)} 套动作清单：")
-        for pid, it in m.items():
-            print(f"  {pid:20s} | {it.get('nameZh',''):12s} | {it.get('nameEn','')}")
-        return
+def _validated_aspect(value):
+    aliases = {
+        "9:16": "9:16", "portrait": "9:16", "竖屏": "9:16", "竖": "9:16",
+        "9:16 (portrait widescreen)": "9:16",
+        "16:9": "16:9", "landscape": "16:9", "widescreen": "16:9",
+        "wide": "16:9", "横屏": "16:9", "横": "16:9", "16:9 (widescreen)": "16:9",
+        "1:1": "1:1", "square": "1:1", "方屏": "1:1", "1:1 (square)": "1:1",
+    }
+    key = str(value).strip().lower()
+    if key not in aliases:
+        raise argparse.ArgumentTypeError("画幅必须是 9:16、16:9、1:1 或对应画幅别名")
+    return aliases[key]
 
-    if "--scene" in sys.argv:
-        idx = sys.argv.index("--scene")
-        scene = sys.argv[idx + 1] if idx + 1 < len(sys.argv) else ""
-        print("=" * 60)
-        print("🐳 吞鲸宝典 · 整段床戏自动拆解")
-        print(f"剧本片段：{scene}")
-        print("=" * 60)
-        for seg, pid, prompt in resolve_scene(scene):
-            if pid:
-                print(f"\n▶ 动作「{seg}」")
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description="吞鲸宝典动作矩阵提示词解析")
+    parser.add_argument("query", nargs="?", help="动作名称或矩阵编号")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--list", action="store_true", help="列出全部动作")
+    mode.add_argument("--scene", metavar="TEXT", help="按顺序解析动作片段")
+    parser.add_argument("--aspect", type=_validated_aspect, default="9:16", help="9:16 / 16:9 / 1:1")
+    args = parser.parse_args(argv)
+    if args.query and (args.list or args.scene is not None):
+        parser.error("动作名称不能与 --list 或 --scene 同时使用")
+    if not args.list and args.scene is None and not args.query:
+        parser.error("请提供动作名称、--scene 或 --list")
+    try:
+        if args.list:
+            matrix = load_matrix()
+            print(f"吞鲸宝典 · 可实时响应的 {len(matrix)} 套动作清单：")
+            for pid, entry in matrix.items():
+                print(f"  {pid:20s} | {entry.get('nameZh',''):12s} | {entry.get('nameEn','')}")
+            return 0
+        if args.scene is not None:
+            if not args.scene.strip():
+                parser.error("--scene 不能为空")
+            results = resolve_scene(args.scene, aspect=args.aspect)
+            failed = not results
+            print("=" * 60)
+            print("吞鲸宝典 · 整段动作自动拆解")
+            print(f"剧本片段：{args.scene}")
+            print("=" * 60)
+            for segment, pid, prompt in results:
+                if pid:
+                    print(f"\n▶ 动作「{segment}」")
+                else:
+                    failed = True
                 print(prompt)
-            else:
-                print(prompt)
-        return
-
-    if len(sys.argv) < 2:
-        print("用法：python tunjing_resolver.py 「动作名」 或 --scene 「整段剧本」 或 --list")
-        return
-
-    query = sys.argv[1]
-    pid, entry = resolve(query)
-    if not entry:
-        print(f"[!] 未命中动作「{query}」，请用 --list 查看可用动作或换个说法。")
-        return
-    print("=" * 60)
-    print("🐳 吞鲸宝典 · 实时响应")
-    print(f"需求「{query}」→ 命中吞鲸标准动作 [{pid}]")
-    print("=" * 60)
-    print(render_prompt(pid, entry))
+            return 1 if failed else 0
+        pid, entry = resolve(args.query)
+        if not entry:
+            print(f"[!] 未命中动作「{args.query}」，请用 --list 查看可用动作或换个说法。", file=sys.stderr)
+            return 1
+        print("=" * 60)
+        print("吞鲸宝典 · 实时响应")
+        print(f"需求「{args.query}」→ 命中吞鲸标准动作 [{pid}]")
+        print("=" * 60)
+        print(render_prompt(pid, entry, aspect=args.aspect))
+        return 0
+    except (OSError, ValueError) as exc:
+        print(f"解析失败：{exc}", file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":
-    main()
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8")
+    sys.exit(main())

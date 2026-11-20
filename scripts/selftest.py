@@ -100,9 +100,13 @@ def main():
     print("[✓] 4/4 13类场地承托面与声场动态适配 (with_scene_surface) PASS")
 
     print("=" * 65)
-    print("🎉 吞鲸宝典 v3.0 权威母版自检 100% 通过！跨机跨模型随时可投产！")
+    from dryrun_test import run_dryrun
+    import tempfile
+    run_dryrun(tempfile.mkdtemp(prefix="tunjing_selftest_"))
+    print("PASS 文件、真源JSON、语法、场景适配及双画幅中性离线链路")
     print("=" * 65)
 
 
 if __name__ == "__main__":
+    sys.stdout.reconfigure(encoding="utf-8")
     main()

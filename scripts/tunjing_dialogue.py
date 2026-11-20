@@ -148,6 +148,8 @@ SURFACE_EN = {"桌": "table", "门框": "door frame", "墙": "wall", "": "surfac
 def resolve_blocking(scene_text, lines_text):
     """自动识别文戏站位类型：隔桌/隔门/贴墙/并排"""
     t = (scene_text or "") + " " + (lines_text or "")
+    if any(k in t for k in ("并排", "并肩", "一起看", "一起走")):
+        return "并排", ""
     if any(k in t for k in ("桌", "办公桌", "柜台", "吧台", "茶几", "table", "desk")):
         return "隔桌", "table"
     if any(k in t for k in ("门口", "门", "走廊", "玄关", "door")):

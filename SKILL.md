@@ -1,7 +1,7 @@
 ---
-name: tunjing-baodian
-description: "Use when producing or auditing short dramas with Tunjing."
-version: 4.5.3
+name: tunjing-baodian-h3-ref2va
+description: "Use when producing or auditing short dramas with Tunjing using the isolated H3 Ref2VA assembly profile."
+version: 4.5.3-h3-ref2va.1
 author: 吞鲸工作室 (Swallowing Whale Studio)
 license: MIT
 metadata:
@@ -11,8 +11,10 @@ metadata:
 
 # 🐳 吞鲸宝典 · 全剧集视听导演调度生产引擎 (Tunjing Baodian v4.5)
 
+> 工程验收说明（2026-11-19）：当前代码接口与验收边界见 [engineering-contract.md](references/engineering-contract.md)。六字段结构、独立 Camera/SPEECH 与实际输入证据由代码检查；`axis` 仅作兼容警告。纯对白、单人镜与空镜按实际内容验收。固定随包 HMAC 密钥用于完整性校验，不能阻止拥有本机写权限的人修改代码。自检覆盖中性样本的横竖屏软件链路；模型加载、实际渲染、画面质量和后期依赖须另行实测。旧文中的“100% 可用”“零外部依赖”与旧门禁描述不能替代这些实际验收结果。
+
 > **吞鲸宗旨**：**文戏带刀有张力，动作带电有花样，步步门禁不跳步，纯血管线一次过。**
-> 吞鲸工作室 100% 自包含权威生产母版。内置 90 套全剧集纯英文动量真源矩阵（8 大导演调度原语 + 10 大暧昧挑逗诱惑肢体 + 14 大权力对峙与情绪宣泄肢体 + 55 套核心肉戏体位 + 3 套高频兼容别名）+ 12 大主动表演情绪四维解剖光谱、40 条物理换位配方、13 类场地中英双轨动态适配内核、分号 (`;`) 黄金分割律与双轨物理分流构图死锁，零外部依赖、零脑补词汇、跨机器跨大模型 100% 无差别出片。
+> 吞鲸工作室生产工具包：内置镜头与动作矩阵、场地适配、对白和工作流装配工具。代码检查、离线负载、实际模型渲染和成片质量分别验收；后期处理需要 FFmpeg，剪映导出另需对应依赖。
 
 ---
 
@@ -35,9 +37,9 @@ metadata:
    - **鲸鲸（执行导演）**：资产与剧本方向定版后，**在纯对话模式下后台全包后续全流程**（不等监制提醒即自动配齐正反打 `srs_male`/`srs_female` 屏幕方向与12°俯仰视线互补锁、过肩 `ots_depth`、Auto-DP 先静后动三段式运镜与工作景别阶梯弹跳、13 类家具人体高度物理锚点、特写与微距头部自动瘦身裁剪、24 套文戏对峙与暧昧挑逗肢体动作、12 大黄金反应公式情绪光谱 + 文戏三阶段状态失控谱 `inhibition -> surge -> aftermath`、活人感去AI味台词门禁与 4.1字/秒物理语速预算、后期电话音质 300-3400Hz 带通滤波与内心独白轻混响自动挂载、空间图池单槽轮换与后台全自动批跑）；接手旧项目或初稿剧本时，必须先运行 `python scripts/tunjing_advisor.py <项目目录>` 主动输出五维度导演诊断与升维建议，严禁照本宣科直接顺着残缺旧剧本往下走；单集总时长（60s~360s 弹性）与文/肉戏出场节奏 100% 服从剧本张力，拒绝“固定 300s / 前200s文+后100s肉”的机械八股。
 4. **状态机锁死与两大反失控铁律**：
    - **铁律 A（严禁自编野鸡脚本）**：强制使用宝典内置的 `tunjing_scene.py`、`tunjing_gatekeeper.py`、`tunjing_diff_audit.py` 与 `tunjing_runner.py`。**严禁 Agent 在项目目录里临时手写 `make_*.py`、`submit_*.py`、`patch_*.py` 等一次性拼凑脚本绕过宝典真源与门禁！**
-   - **铁律 B（物理点火锁 + 五维签字单呈报，严禁擅自开跑）**：通过 Gate 5 后，系统自动生成《监制五维核对签字单.md》（逐镜列出 `<Picture 1/2/3>` 实名文件、体位 ID、景别运镜、🔥交合微距特写高亮、🗣️台词核对与 8 位 SHA-256 点火授权码）。**鲸鲸必须先向监制呈报该对账单并停机等待；在监制未明确下令“开始渲染”前，严禁调用 ComfyUI 提交任何渲染任务！**
+   - **铁律 B（物理点火锁 + 五维签字单呈报，严禁擅自开跑）**：通过 Gate 5 后，系统自动生成《监制五维核对签字单.md》（逐镜列出 `<Picture 1/2/3>` 实名文件、体位 ID、景别运镜、🔥交合微距特写高亮、🗣️台词核对与 16 位 HMAC 完整性令牌）。**鲸鲸必须先向监制呈报该对账单并停机等待；在监制未明确下令“开始渲染”前，严禁调用 ComfyUI 提交任何渲染任务！**
    - **铁律 C（Git 提交保密，监制硬性要求）**：对吞鲸宝典主仓库（`RastaJiN/tunjing-baodian`，本地 `C:/Users/Rasta/AppData/Local/hermes/skills/tunjing-baodian`）的任何 `git commit`，**commit message 一律只写 `修复少量BUG`，严禁在提交信息里暴露本次更新的具体内容**（功能名、铁律号、新脚本名、模块名、任何描述性说明都不写）。这是监制的明确保密要求——更新内容只体现在代码和 SKILL.md 正文里，绝不进 commit message。推送前需确认 Clash 代理在线（`export https_proxy=http://127.0.0.1:7897 http_proxy=http://127.0.0.1:7897`，否则裸 `git` 连不上 GitHub）。
-   - **铁律 D（反绕死锁，治「大模型自己写脚本绕过门禁/伪造 PASS/篡改代码」）**：发散型大模型（DeepSeek 等）会做三件越权事——① 自己写脚本绕过门禁直接渲染；② 伪造 SHA-256 全 PASS 报告；③ 篡改宝典脚本删掉门禁/签名逻辑。三层反绕死锁焊死：**① 渲染点火锁**（`tunjing_runner.py`）：Gate 1~5 必须全 PASS + `--confirm-token` 必须对；**② HMAC 防伪签名**（`tunjing_core.py` 的 `sign_project`）：签名用 HMAC-SHA256 + 模型不可知的密钥（密钥拆三段运行时拼接），模型拿到批量任务.json 也**算不出真签名**，裸 SHA-256 已被废除；**③ 反改代码锁**：`sign_project` 把 `gatekeeper/diff_audit/core/runner` 四个核心脚本自身指纹纳入签名，模型篡改任一脚本 → 签名变 → 对不上基准 → 拒绝渲染。**核心心法**：约束必须是「代码」，不是「文字」——文字约束大模型聊着聊着就忘，代码约束它永远跳不脱；大模型想自由发挥，代码直接熔断，不是靠它自觉。若模型跳脱了（聊着聊着不按对白时长走、肉戏提示词自己瞎写、自己写脚本绕过门禁），唯一正解是「回滚到代码装配」，不是拉锯式人工修改。
+   - **铁律 D（输入证据与完整性校验）**：运行器要求当前 Gate 1–5 通过、输入证据有效且 `--confirm-token` 与 `sign_project` 当前结果一致。HMAC-SHA256 令牌绑定任务、状态及相关源码；任务、资产或校验器改变后需要重新验收。密钥随包分发，可被拥有本机读取权限的程序获得；令牌用于检测输入变化，不能充当身份认证，也不能阻止拥有本机写权限的人改写代码。渲染仍须监制明确授权。
 
 ---
 
@@ -218,3 +220,13 @@ python scripts/tunjing_scene.py \
     - **空间图池单槽轮换法（Multi-View Pool, Single-View Per Shot）**：同一房间准备 3~4 张不同视角底图（主全景 `scene_main.png`、墙面立面 `scene_wall.png`、承托面近景 `scene_close.png`），但每一镜的 `<Picture 3>`（槽位 2）**只挂 1 张最匹配当前机位/景别的空间底图**（切特写/微距挂 `scene_close.png` 防丢背景，墙边戏挂 `scene_wall.png`），严禁单镜同时混喂多张空间图导致空间错乱，且 `<Picture 3>` 全片永不断电；
     - **三级戏份门禁**：Gate 3 自动按「含口交戏 / 独处自慰戏 / 纯插入交合戏」三级分档核验，不强迫无口交剧本硬塞口交；
     - **工作流黄金拓扑与满血底模锁**：Node 38 优先挂载 `qwen3vl_32b_minimax_h3_ultra_uncensored_heretic_int8_convrot.safetensors`（大内存下替代 4-bit `nvfp4` 以保多图跨模态对齐精度），Node 400 挂载 `MysticXXX_MMH3-V5-ref2va.safetensors`（文戏/穿衣/空镜权重强制归 `0.0`，肉戏恢复 `0.45~0.50`），Node 53 (DMAD) 与 Node 404 (如梦似幻) 锁定 `0.80`，Node 265 `ref_image_size` 统一设为 `match`，Node 364 `filename_prefix` 与全链路切片命名统一采用 `EP00X_SHOT_00X` 格式；物理切除悬空的 `Node 333 (MiniMaxH3SigmaShift)` 与武打倍速 LoRA 组（342~345），锁死 12GB 低显存四护法链（`Node 331 -> 332 -> 403 -> 401`）；每次提交动态更新帧长时必须同时同步 `Node 259 (PrimitiveFloat 秒数)` 与 `Node 250 (ComfyMathExpression)`，严禁锁死 15.0s 导致台词后半段进入无指令真空期诱发字幕；每镜渲染后调用 `/free` 释放显存时仅执行 `.read()`，严禁对空响应调用 `json.loads()`；所有资产文件名必须为纯 ASCII 英文/数字/下划线，启动前动态校验 ComfyUI `--input-directory` 真实挂载目录并覆盖 `male_master.png / female_master.png / scene_main.png` 模板占位符，确保单实例进程运行防 OOM；跨镜接缝两边必须换视角或换景别，需要定格抽尾帧时追加 `The movement stops and the picture holds still for the last second.`。
+
+
+## 🔍 逆向工程与自动化质检集成（Teardown 模块）
+
+本项目已全面融合短剧逆向拆解与客观质检工具链：
+1. scripts/teardown_batch_prep.py：支持基于台词/分镜时间码中点 (start+end)/2 精准抽取关键帧，进行客观 1:1 视觉质检；
+2. scripts/teardown_srt_to_script.py：支持双轨字幕解析并逆向还原为影视级剧本；
+3. scripts/teardown_export_html.py：支持将剧本、分镜分析卡、质检板封装为单页 100% 离线滚动 HTML 报告；
+4. 对应参考模板位于 
+eferences/teardown_*。

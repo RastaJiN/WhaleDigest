@@ -32,6 +32,7 @@ from tunjing_core import (
     load_poses, STAGING_IDS, TEASE_IDS, DRAMATIC_BODY_IDS,
     EMOTION_MUSCLE_CUES, resolve_emotion_key, check_dialogue_human_quality, parse_audio_fx_mode
 )
+from tunjing_scene import normalize_aspect
 
 
 def diagnose_project(project_dir):
@@ -43,8 +44,14 @@ def diagnose_project(project_dir):
 
     script_txt = open(script_file, "r", encoding="utf-8").read() if os.path.exists(script_file) else ""
     sb_txt = open(sb_file, "r", encoding="utf-8").read() if os.path.exists(sb_file) else ""
-    batch_data = json.load(open(bj_file, "r", encoding="utf-8")) if os.path.exists(bj_file) else {}
+    from tunjing_task_source import load_task_source
+    if os.path.exists(os.path.join(project_dir, ".tunjing_project.json")) or os.path.exists(bj_file):
+        _, batch_data, _ = load_task_source(project_dir)
+    else:
+        batch_data = {}
     shots = batch_data.get("batch_shots") or batch_data.get("shots") or []
+    aspect = normalize_aspect(batch_data.get("aspect", "9:16")) if isinstance(batch_data, dict) else "9:16"
+    aspect_label = {"16:9": "16:9 横屏空间关系", "1:1": "1:1 方屏空间关系", "9:16": "9:16 竖屏纵深"}[aspect]
 
     all_text = script_txt + "\n" + sb_txt
     found_ids = [m for m in re.findall(r"\b([a-z][a-z_0-9]{1,28})\b", all_text) if m in poses_db]
@@ -54,6 +61,7 @@ def diagnose_project(project_dir):
         shot_poses = found_ids
 
     used_set = set(shot_poses)
+    has_action_scene = any(p not in STAGING_IDS for p in shot_poses)
     used_tease = used_set & TEASE_IDS
     used_dramatic = used_set & DRAMATIC_BODY_IDS
     used_srs = used_set & {"srs_male", "srs_female"}
@@ -63,14 +71,14 @@ def diagnose_project(project_dir):
     upgrade_chain_mid = []
 
     # ── 1. 文戏肢体与暧昧挑逗饱和度诊断 ──
-    if not used_tease and not used_dramatic:
+    if has_action_scene and not used_tease and not used_dramatic:
         suggestions.append({
             "dimension": "【维度 1 · 文戏肢体与挑逗前奏缺失】",
             "issue": "当前剧本/分镜从对话直接跳入前戏/肉戏，缺少上半身肢体推拉与暧昧挑逗过渡，容易显得生硬直球、缺乏拉扯张力。",
             "action": "建议在破局前插入 3~4 个单接触点高张力肢体动作：如 `wall_caging`(单臂壁咚封堵) ➔ `chin_lift`(捏下巴抬脸逼视) ➔ `chest_push`(双手抵胸推拒) ➔ `ear_whisper_tease`(贴耳热气低语) ➔ `lip_thumb_wipe`(拇指摩挲唇瓣) ➔ `finger_interlock_pin`(十指扣死按压)。"
         })
         upgrade_chain_prefix.extend(["env_establish", "wall_caging", "chin_lift", "chest_push", "ear_whisper_tease", "lip_thumb_wipe"])
-    elif not used_tease:
+    elif has_action_scene and not used_tease:
         suggestions.append({
             "dimension": "【维度 1 · 暧昧挑逗层次可深化】",
             "issue": f"已包含对抗肢体 {sorted(used_dramatic)}，但缺少欲拒还迎的挑逗试探动作。",
@@ -82,7 +90,7 @@ def diagnose_project(project_dir):
         suggestions.append({
             "dimension": "【维度 2 · 缺少单人正反打 (Shot / Reverse-Shot)】",
             "issue": "全片未显式排布 `srs_male`(男正打) 与 `srs_female`(女反打)，全双人同框会导致分不清谁在说话、眼神戏缺失。",
-            "action": "建议在对白交锋处与主力冲撞中段插入 `srs_male ➔ srs_female` 正反打序列（自动物理隔离异性槽位防鬼脸，并用 `ots_depth` 过肩景深撑开 9:16 纵深）。"
+            "action": f"建议在对白交锋处与主力冲撞中段插入 `srs_male ➔ srs_female` 正反打序列（自动物理隔离异性槽位防鬼脸，并用 `ots_depth` 过肩景深撑开 {aspect_label}）。"
         })
         upgrade_chain_prefix.extend(["srs_male", "srs_female"])
         upgrade_chain_mid.extend(["srs_male", "srs_female"])
@@ -144,7 +152,7 @@ def diagnose_project(project_dir):
     # 生成推荐的 4.0 升维完整调度链
     core_action_chain = [p for p in shot_poses if p not in STAGING_IDS]
     if not core_action_chain:
-        core_action_chain = ["undress", "kiss_fondle", "bj", "missionary", "cowgirl", "doggy", "cum_face"]
+        core_action_chain = list(shot_poses) or ["env_establish", "srs_male", "srs_female"]
     # 去重连续相同体位
     dedup_actions = []
     for p in core_action_chain:
@@ -154,7 +162,7 @@ def diagnose_project(project_dir):
         mid_idx = len(dedup_actions) // 2
         dedup_actions = dedup_actions[:mid_idx] + upgrade_chain_mid + ["cut_insert"] + dedup_actions[mid_idx:]
 
-    recommended_chain = upgrade_chain_prefix + dedup_actions + ["outro_solo"]
+    recommended_chain = upgrade_chain_prefix + dedup_actions + (["outro_solo"] if has_action_scene else [])
     # 消除相邻重复
     final_chain = []
     for x in recommended_chain:
@@ -163,6 +171,7 @@ def diagnose_project(project_dir):
 
     return {
         "project": os.path.abspath(project_dir),
+        "aspect": aspect,
         "existing_poses_count": len(shot_poses),
         "used_tease": sorted(used_tease),
         "used_dramatic": sorted(used_dramatic),
@@ -189,7 +198,7 @@ def print_diagnosis(rep):
 
     print("-" * 80)
     print("🚀 【鲸鲸一键升维重排推荐命令】（可直接复制执行，补齐文戏肢体、挑逗、正反打与 Auto-DP 运镜）：")
-    print(f"python scripts/tunjing_scene.py --chain '{rep['recommended_v4_chain']}' --total 180 --out-dir '{rep['project']}'")
+    print(f"python scripts/tunjing_scene.py --chain '{rep['recommended_v4_chain']}' --total 180 --aspect {rep['aspect']} --out-dir '{rep['project']}'")
     print("=" * 80)
 
 
@@ -207,4 +216,6 @@ def main():
 
 
 if __name__ == "__main__":
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
     main()

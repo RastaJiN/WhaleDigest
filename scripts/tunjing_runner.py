@@ -20,10 +20,14 @@ import random
 import shutil
 import subprocess
 import argparse
+import hashlib
+import math
 import urllib.request
 import urllib.error
 from tunjing_task_source import load_task_source, require_source_audit, source_record, validate_batch_metadata, validate_image_references
+from tunjing_media import probe_media
 from tunjing_audio_contract import resolve_audio_contract, validate_workflow_audio
+from tunjing_compiler import lint_tunjing_prompt
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_WF = os.path.join(BASE_DIR, "..", "references", "workflows", "tunjing_v4_master_api.json")
@@ -50,16 +54,64 @@ ASPECT_ALIASES = {
 
 
 def resolve_aspect(value):
-    """把 '16:9' / 'Landscape' / '横屏' 归一成 ResolutionSelector 的原生枚举值；不认识返回 None。"""
-    if not value:
+    """Return a supported native enum, rejecting an explicit unknown aspect."""
+    if value is None or value == "":
         return None
-    s = str(value).strip()
+    s = str(value).strip().lower()
     if s in ASPECT_ALIASES:
         return ASPECT_ALIASES[s]
-    if "(" in s and ")" in s:
-        return s
-    return None
+    for enum in ASPECT_ALIASES.values():
+        if enum.lower() == s:
+            return enum
+    raise ValueError("Unsupported aspect: " + str(value))
 COMFY_URL = "http://127.0.0.1:8188"
+
+def file_sha256(path):
+    digest = hashlib.sha256()
+    with open(path, "rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def shot_reuse_metadata(target_mp4, task_sha, sid, shot, batch, sources=None):
+    """Return the exact source fingerprint required before reusing an MP4."""
+    prompt = shot.get("prompt") if isinstance(shot.get("prompt"), str) else ""
+    raw_aspect = shot.get("aspect") or batch.get("aspect") or ""
+    return {
+        "schema": "tunjing-shot-output-v2",
+        "task_sha256": task_sha,
+        "shot_id": str(sid),
+        "prompt_sha256": hashlib.sha256(prompt.encode("utf-8")).hexdigest(),
+        "aspect": str(raw_aspect),
+        "frames": int(shot.get("frames")),
+        "project_sources": sources,
+        "workflow_sha256": file_sha256(DEFAULT_WF),
+        "runner_sha256": file_sha256(__file__),
+    }
+
+
+def is_reusable_shot(target_mp4, expected):
+    try:
+        probe_media(target_mp4)
+        with open(target_mp4 + ".meta.json", encoding="utf-8") as fh:
+            recorded = json.load(fh)
+        if not isinstance(recorded, dict):
+            return False
+        output_sha = recorded.pop("output_sha256", None)
+        return recorded == expected and output_sha == file_sha256(target_mp4)
+    except (OSError, ValueError, TypeError, json.JSONDecodeError):
+        return False
+
+
+def write_shot_metadata(target_mp4, metadata):
+    path = target_mp4 + ".meta.json"
+    temp = path + ".tmp"
+    with open(temp, "w", encoding="utf-8", newline=chr(10)) as fh:
+        json.dump(dict(metadata, output_sha256=file_sha256(target_mp4)), fh, ensure_ascii=False, indent=2)
+        fh.write(chr(10))
+    os.replace(temp, path)
+
 
 
 def http_json(url, method="GET", payload=None, timeout=15):
@@ -122,44 +174,33 @@ def load_or_init_series_bible(project_dir):
 
 
 def generate_5frame_contact_sheet(video_path, out_jpg_path):
-    """
-    使用 FFmpeg 抽取视频 2% / 25% / 50% / 75% / 94% 五个时间点的帧并横向拼接为单张质检板
-    """
-    if not os.path.exists(video_path):
-        return False
+    """Extract five actual frames and atomically publish a new contact sheet."""
+    import tempfile
     try:
-        # 获取视频时长
-        cmd_probe = [
-            "ffprobe", "-v", "error", "-show_entries", "format=duration",
-            "-of", "default=noprint_wrappers=1:nokey=1", video_path
-        ]
-        r = subprocess.run(cmd_probe, capture_output=True, text=True, timeout=15)
-        dur = float(r.stdout.strip() or "5.0")
-        pcts = [0.02, 0.25, 0.50, 0.75, 0.94]
-        tmp_frames = []
-        os.makedirs(os.path.dirname(out_jpg_path), exist_ok=True)
-        for idx, p in enumerate(pcts):
-            ts = max(0.0, round(dur * p, 2))
-            tf = f"{out_jpg_path}_tmp_{idx}.jpg"
-            subprocess.run(
-                ["ffmpeg", "-y", "-ss", str(ts), "-i", video_path, "-frames:v", "1", "-q:v", "3", tf],
-                capture_output=True, timeout=15
-            )
-            if os.path.exists(tf):
-                tmp_frames.append(tf)
-        if len(tmp_frames) == 5:
-            cmd_tile = [
-                "ffmpeg", "-y",
-                "-i", tmp_frames[0], "-i", tmp_frames[1], "-i", tmp_frames[2],
-                "-i", tmp_frames[3], "-i", tmp_frames[4],
-                "-filter_complex", "hstack=inputs=5", "-q:v", "2", out_jpg_path
-            ]
-            subprocess.run(cmd_tile, capture_output=True, timeout=20)
-        for tf in tmp_frames:
-            if os.path.exists(tf):
-                os.remove(tf)
-        return os.path.exists(out_jpg_path)
-    except Exception:
+        media = probe_media(video_path)
+        duration = float(media["format"]["duration"])
+        parent = os.path.dirname(os.path.abspath(out_jpg_path))
+        os.makedirs(parent, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=parent) as temporary:
+            frames = []
+            for index, fraction in enumerate((0.02, 0.25, 0.50, 0.75, 0.94)):
+                frame = os.path.join(temporary, f"frame{index}.jpg")
+                subprocess.run(["ffmpeg", "-y", "-ss", str(duration * fraction), "-i", video_path,
+                                "-frames:v", "1", "-q:v", "3", frame], capture_output=True, timeout=15, check=True)
+                if not os.path.isfile(frame):
+                    return False
+                frames.append(frame)
+            output = os.path.join(temporary, "contact.jpg")
+            command = ["ffmpeg", "-y"]
+            for frame in frames:
+                command += ["-i", frame]
+            command += ["-filter_complex", "hstack=inputs=5", "-frames:v", "1", "-q:v", "2", output]
+            subprocess.run(command, capture_output=True, timeout=20, check=True)
+            if not os.path.isfile(output):
+                return False
+            os.replace(output, out_jpg_path)
+        return True
+    except (OSError, ValueError, KeyError, subprocess.SubprocessError):
         return False
 
 
@@ -244,14 +285,37 @@ def build_shot_workflow(base_wf, shot, custom_seed=None, prefix_override=None, a
     return wf
 
 
+def canonical_shot_id(value):
+    text = str(value).strip().casefold()
+    text = re.sub(r"^(?:ep\d+[_-])?shot[_-]?", "", text)
+    numeric = re.fullmatch(r"0*(\d+)([a-z]*)", text)
+    return str(int(numeric.group(1))) + numeric.group(2) if numeric else text
+
+
+def shot_output_stem(shot, batch, project_dir):
+    """Use the literal shot identity; episode digits are not shot digits."""
+    explicit = shot.get("filename_prefix")
+    if explicit is not None:
+        if not isinstance(explicit, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]*", explicit):
+            raise ValueError("filename_prefix 必须是单一 ASCII 文件名，不可包含目录")
+        return explicit
+    ep_match = re.search(r"EP(\d+)", str(batch.get("project", "")) + " " + os.path.basename(os.path.abspath(project_dir)), re.I)
+    ep_tag = f"EP{int(ep_match.group(1)):03d}" if ep_match else "EP001"
+    key = canonical_shot_id(shot.get("shot_id", shot.get("id")))
+    numeric = re.fullmatch(r"(\d+)([a-z]*)", key)
+    token = f"{int(numeric.group(1)):03d}{numeric.group(2).upper()}" if numeric else key
+    return f"{ep_tag}_SHOT_{token}"
+
+
 def parse_reroll_targets(reroll_str):
-    if not reroll_str:
+    if reroll_str is None:
         return set()
     targets = set()
     for part in reroll_str.split(","):
-        part = part.strip().lower().replace("shot_", "").replace("shot-", "")
-        if part.isdigit():
-            targets.add(int(part))
+        part = part.strip()
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]*", part):
+            raise ValueError("重跑镜号不能为空或含无效字符")
+        targets.add(canonical_shot_id(part))
     return targets
 
 
@@ -259,15 +323,24 @@ def main():
     ap = argparse.ArgumentParser(description="吞鲸 v4.0 ComfyUI 全自动后台批跑与微创重摇点火器")
     ap.add_argument("project_dir", help="项目目录（内含 批量任务.json）")
     ap.add_argument("--dry-build", action="store_true", help="仅在本地生成逐镜就绪的 API JSON 包与跨集账本")
-    ap.add_argument("--only-first", action="store_true", help="仅渲染第 1 镜用于首镜五联切片抽检")
-    ap.add_argument("--reroll", default="", help="点名微创重摇指定镜号（逗号分隔，如 --reroll 7,19）")
+    selection = ap.add_mutually_exclusive_group()
+    selection.add_argument("--only-first", action="store_true", help="仅渲染第 1 镜用于首镜五联切片抽检")
+    selection.add_argument("--reroll", default=None, help="按实际 shot_id 重跑（逗号分隔，如 7,19 或 04B）")
     ap.add_argument("--candidates", type=int, default=1, help="每个重摇镜头生成的候选版本数（默认1，可设2~3挑片）")
+    ap.add_argument("--render-timeout", type=float, default=3600, help="每个渲染任务最长等待秒数")
     ap.add_argument("--force", action="store_true", help="忽略断点续跑缓存，强制重跑全部目标镜头")
     ap.add_argument("--confirm-token", default="", help="审阅后使用当前状态对应的 16 位完整性令牌（未提供严禁连接 ComfyUI 渲染！）")
     args = ap.parse_args()
+    if not math.isfinite(args.render_timeout) or args.render_timeout <= 0:
+        ap.error("--render-timeout 必须为有限正数")
+    if args.candidates < 1:
+        ap.error("--candidates 必须至少为 1")
 
     try:
         bj_path, batch, task_sha = load_task_source(args.project_dir)
+        initial_source = source_record(args.project_dir)
+        if initial_source["task_path"] != str(bj_path) or initial_source["task_sha256"] != task_sha:
+            raise ValueError("任务在读取期间发生变化，请重新核验")
         validate_batch_metadata(batch)
         for shot in batch["batch_shots"]:
             resolve_audio_contract(shot, batch)
@@ -277,17 +350,43 @@ def main():
     except (ValueError, OSError) as exc:
         print(f"[X] 任务或门禁无效: {exc}")
         sys.exit(1)
-    initial_source = {"task_path": str(bj_path), "task_sha256": task_sha}
     bible, bible_path = load_or_init_series_bible(args.project_dir)
     print(f"任务源: {bj_path}; SHA256={task_sha}")
     with open(DEFAULT_WF, "r", encoding="utf-8") as f:
         base_wf = json.load(f)
 
     all_shots = batch.get("batch_shots", [])
-    reroll_set = parse_reroll_targets(args.reroll)
+    try:
+        stems = [shot_output_stem(shot, batch, args.project_dir).casefold() for shot in all_shots]
+        if len(stems) != len(set(stems)):
+            raise ValueError("多个镜头指向同一个输出文件名，拒绝覆盖")
+        ids = [str(shot.get("shot_id", shot.get("id"))).casefold() for shot in all_shots]
+        if len(ids) != len(set(ids)):
+            raise ValueError("镜号大小写冲突，拒绝覆盖 API 负载")
+        reroll_set = parse_reroll_targets(args.reroll)
+        if reroll_set:
+            by_id = {}
+            for shot in all_shots:
+                key = canonical_shot_id(shot.get("shot_id", shot.get("id")))
+                if key in by_id:
+                    raise ValueError("镜号归一化后重复: " + key)
+                by_id[key] = shot
+            missing = reroll_set - by_id.keys()
+            if missing:
+                raise ValueError("未找到重跑镜号: " + ", ".join(sorted(missing)))
+            candidate_stems = [
+                shot_output_stem(shot, batch, args.project_dir).casefold() + f"_v{number}"
+                for shot in all_shots
+                if canonical_shot_id(shot.get("shot_id", shot.get("id"))) in reroll_set
+                for number in range(1, args.candidates + 1)
+            ]
+            if set(candidate_stems) & set(stems) or len(candidate_stems) != len(set(candidate_stems)):
+                raise ValueError("重跑候选输出名与现有镜头输出名冲突，拒绝覆盖")
+    except ValueError as exc:
+        ap.error(str(exc))
 
     if reroll_set:
-        shots = [s for idx, s in enumerate(all_shots, 1) if idx in reroll_set]
+        shots = [s for s in all_shots if canonical_shot_id(s.get("shot_id", s.get("id"))) in reroll_set]
         print(f"[🎯 微创重摇模式] 仅针对点名镜号 {sorted(reroll_set)} 重摇 {args.candidates} 个候选版本，其余镜头物理保护锁死！")
     elif args.only_first and all_shots:
         shots = all_shots[:1]
@@ -302,28 +401,16 @@ def main():
     os.makedirs(qc_sheet_dir, exist_ok=True)
 
     for s in shots:
-        # ── 字幕物理自检锁 (Subtitle Physical-Gate)：提交前用引擎同源正则硬核弹回任何可能画字的提示词 ──
-        #   这是全链路最后一道、也是唯一一道模型绕不过去的闸门：
-        #   之前 7 次字幕翻车，根因都是「门禁查关键词，模型改关键词」的古德哈特循环。
-        #   本锁不看关键词，只看三个物理事实：①有没有真人名 ②每条 <d> 前有没有 <Subject N> says 口型锚点 ③says: 是否与 <d> 断行。
+        # Use the same parser as Gate 4, including all supported speech verbs.
         prompt = s.get("prompt", "")
-        if prompt:
-            real_name = re.search(r'(唐曼|陆骁|沈峥|许宁)', prompt)
-            if real_name:
-                print(f"[X 字幕物理自检熔断] {s.get('shot_id')} 提示词含真人名 '{real_name.group(1)}'！speaker 只能写女子A/男子A，否则触发性别熔断→画外音→闭唇→台词被画成字幕。拒绝提交，请回引擎重装配！")
-                sys.exit(1)
-            for dd in re.findall(r'<d>\[Chinese\].*?</d>', prompt, re.DOTALL):
-                dd_ctx = prompt[max(0, prompt.find(dd) - 120):prompt.find(dd)]
-                has_anchor = re.search(r'(?:<subject\s*\d+>\s*\(?s\d+\)?|女子a|男子a|subject\s*\d+)\s*.*?(?:says|speaks|whispers|gasps|moans|murmurs)\s*:\s*$', dd_ctx, re.IGNORECASE)
-                if not has_anchor:
-                    print(f"[X 字幕物理自检熔断] {s.get('shot_id')} 存在无说话人口型锚点的真实台词 '<d>[Chinese]…</d>'！模型会把无锚点台词当字幕画进画面。拒绝提交，请回引擎重装配！")
-                    sys.exit(1)
-            if re.search(r'says:\s*\n\s*<d>', prompt, re.IGNORECASE):
-                print(f"[X 字幕物理自检熔断] {s.get('shot_id')} 检测到 'says:' 与 '<d>' 断行（SRT字幕格式诱导）！必须同行写 'says: <d>…</d>'。拒绝提交，请回引擎重装配！")
-                sys.exit(1)
+        errors, _ = lint_tunjing_prompt(prompt)
+        if errors:
+            print(f"[X 提示词检查失败] {s.get('shot_id', s.get('id'))}: " + "; ".join(errors))
+            sys.exit(1)
 
         wf = build_shot_workflow(base_wf, s, aspect=batch.get("aspect"), batch=batch)
-        out_p = os.path.join(payload_dir, f"{s.get('shot_id', 'shot')}_api.json")
+        shot_identifier = s.get("shot_id", s.get("id"))
+        out_p = os.path.join(payload_dir, f"{shot_identifier}_api.json")
         with open(out_p, "w", encoding="utf-8") as f:
             json.dump(wf, f, ensure_ascii=False, indent=2)
 
@@ -367,8 +454,8 @@ def main():
     try:
         stats = http_json(f"{COMFY_URL}/system_stats")
     except Exception as e:
-        print(f"[i] ComfyUI ({COMFY_URL}) 当前未启动 ({e})，已为您保存全部就绪负载至 {payload_dir}。")
-        return
+        print(f"[X] ComfyUI ({COMFY_URL}) 不可连接 ({e})；仅保存了就绪负载，渲染未执行: {payload_dir}")
+        sys.exit(1)
 
     argv = stats.get("system", {}).get("argv", [])
     input_dir = ""
@@ -378,26 +465,30 @@ def main():
             input_dir = argv[i + 1]
         if a == "--output-directory" and i + 1 < len(argv):
             output_dir = argv[i + 1]
+    # ComfyUI default directories are relative to its main.py location.
+    main_path = next((str(a) for a in argv if str(a).lower().endswith("main.py")), "")
+    comfy_root = os.path.dirname(os.path.abspath(main_path)) if main_path else ""
+    input_dir = input_dir or (os.path.join(comfy_root, "input") if comfy_root else "")
+    output_dir = output_dir or (os.path.join(comfy_root, "output") if comfy_root else "")
+    if not input_dir or not os.path.isdir(input_dir):
+        raise ValueError("无法确认 ComfyUI Input 目录，请在服务端配置 --input-directory")
     n_sync = sync_assets_to_comfy(args.project_dir, input_dir)
     print(f"[✓] ComfyUI 在线 | 已同步 {n_sync} 个 ASCII 资产至真实 Input 目录: {input_dir}")
 
     for idx, s in enumerate(shots, 1):
-        ep_m = re.search(r"EP(\d+)", str(batch.get("project", "")) + " " + os.path.basename(os.path.abspath(args.project_dir)), re.IGNORECASE)
-        ep_tag = f"EP{int(ep_m.group(1)):03d}" if ep_m else "EP001"
-        sid_raw = str(s.get("shot_id") or s.get("id") or f"{idx:03d}")
-        num_m = re.search(r"(\d+[A-Za-z]?)", sid_raw)
-        s_tok = num_m.group(1) if num_m else f"{idx:03d}"
-        if s_tok.isdigit():
-            std_shot_name = f"{ep_tag}_SHOT_{int(s_tok):03d}"
-        else:
-            # 兼容如 04B 这种拆分镜号 -> EP001_SHOT_004B
-            d_part = re.match(r"(\d+)([A-Za-z]+)", s_tok)
-            std_shot_name = f"{ep_tag}_SHOT_{int(d_part.group(1)):03d}{d_part.group(2).upper()}" if d_part else f"{ep_tag}_SHOT_{idx:03d}"
-        sid = s.get("filename_prefix") or std_shot_name
+        sid = shot_output_stem(s, batch, args.project_dir)
         target_mp4 = os.path.join(out_video_dir, f"{sid}.mp4")
 
-        # 断点续跑保护：非 reroll 且非 force 时，若已存在合格 mp4 则自动跳过
-        if not reroll_set and not args.force and os.path.exists(target_mp4) and os.path.getsize(target_mp4) > 100_000:
+        # 断点续跑保护：必须同时匹配当前任务、提示词、画幅和帧数指纹
+        if source_record(args.project_dir) != initial_source:
+            raise ValueError("Task changed before output reuse; run audit again")
+        expected_meta = shot_reuse_metadata(target_mp4, task_sha, sid, s, batch, sources=initial_source)
+        reusable = False
+        if not reroll_set and not args.force and os.path.exists(target_mp4):
+            reusable = is_reusable_shot(target_mp4, expected_meta)
+            if not reusable:
+                print(f"[↻ 断点续跑重算] {sid}.mp4 存在但任务指纹不匹配，拒绝复用。")
+        if reusable:
             print(f"[⏭ 断点续跑跳过] {sid}.mp4 已存在且完整，直接保护跳过。")
             continue
 
@@ -415,7 +506,7 @@ def main():
                     print(f"[X 致命阻断] {sid} 绑定的参考图 {missing_refs} 在 ComfyUI Input 目录 ({input_dir}) 中不存在！拒绝提交空跑！")
                     sys.exit(1)
 
-            t_start = time.time()
+            t_start = time.monotonic()
             print(f"\n[▶] ({idx}/{len(shots)}) 提交 {sid}{ver_suffix} | Seed={seed_val} | 姿势={s.get('pose')} | 时长={s.get('duration')}s ({s.get('frames')}f) | LoRA={s.get('lora_mystic_strength')}")
             if source_record(args.project_dir) != initial_source:
                 raise ValueError("Task changed after audit; dispatch refused")
@@ -430,15 +521,17 @@ def main():
                 sys.exit(1)
 
             while True:
+                if time.monotonic() - t_start > args.render_timeout:
+                    raise TimeoutError(f"渲染等待超时: {sid} / {pid}")
                 time.sleep(5)
                 hist = http_json(f"{COMFY_URL}/history/{pid}")
                 if pid in hist:
-                    elapsed = round(time.time() - t_start, 1)
+                    elapsed = round(time.monotonic() - t_start, 1)
                     st_info = hist[pid].get("status", {})
                     outputs = hist[pid].get("outputs", {})
                     gifs = outputs.get("364", {}).get("gifs", [])
                     # 反作弊锁 4B：拦截 0.0s 秒退或无 MP4 产物的假完成！
-                    if st_info.get("status_str") == "error" or not gifs or elapsed < 10.0:
+                    if st_info.get("status_str") == "error" or not gifs or not st_info.get("completed", True):
                         print(f"[X 渲染异常中断] {sid} 耗时仅 {elapsed}s 且未产出有效视频！底层状态: {st_info}")
                         sys.exit(1)
                     picked = None
@@ -452,12 +545,21 @@ def main():
                     if picked:
                         fn = picked.get("filename")
                         sub = picked.get("subfolder", "")
-                        src_vid = os.path.join(output_dir, sub, fn) if output_dir else fn
+                        src_vid = os.path.join(output_dir, sub, fn) if output_dir else ""
+                        if not src_vid or not os.path.exists(src_vid):
+                            from urllib.parse import urlencode
+                            view_url = f"{COMFY_URL}/view?" + urlencode({"filename": fn, "subfolder": sub, "type": picked.get("type", "output")})
+                            src_vid = os.path.join(out_video_dir, f".{sid}{ver_suffix}.download.mp4")
+                            with urllib.request.urlopen(view_url, timeout=60) as response, open(src_vid, "wb") as handle:
+                                shutil.copyfileobj(response, handle)
                         dst_vid = os.path.join(out_video_dir, f"{sid}{ver_suffix}.mp4")
-                        if os.path.exists(src_vid) and os.path.getsize(src_vid) > 100_000:
+                        if os.path.exists(src_vid):
+                            probe_media(src_vid)
                             shutil.copy2(src_vid, dst_vid)
                             qc_jpg = os.path.join(qc_sheet_dir, f"{sid}{ver_suffix}_qc5.jpg")
-                            generate_5frame_contact_sheet(dst_vid, qc_jpg)
+                            if not generate_5frame_contact_sheet(dst_vid, qc_jpg):
+                                raise RuntimeError(f"五联质检板生成失败: {sid}")
+                            write_shot_metadata(dst_vid, expected_meta)
                             print(f"[✓] {sid}{ver_suffix} 真实渲染入库 ({elapsed}s) -> {dst_vid} | 五联质检板 -> {qc_jpg}")
                         else:
                             print(f"[X] {sid}{ver_suffix} 产物文件缺失或损坏: {src_vid}")
@@ -478,9 +580,13 @@ def main():
         print("=" * 70)
         master_script = os.path.join(BASE_DIR, "tunjing_mastering.py")
         jy_script = os.path.join(BASE_DIR, "export_jianying_draft.py")
-        subprocess.run([sys.executable, master_script, args.project_dir])
-        subprocess.run([sys.executable, jy_script, args.project_dir])
+        subprocess.run([sys.executable, master_script, args.project_dir], check=True)
+        subprocess.run([sys.executable, jy_script, args.project_dir], check=True)
 
 
 if __name__ == "__main__":
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8")
     main()

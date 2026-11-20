@@ -28,10 +28,8 @@ BASE = os.path.dirname(os.path.abspath(__file__))
 REF = os.path.join(BASE, "..", "references")
 
 
-# ── 反绕死锁密钥 (Anti-Bypass HMAC Secret)：让「门禁 PASS + 批量任务」的签名只能由宝典代码自己算 ──
-# 发散型大模型（DeepSeek 等）会自己写脚本伪造 SHA-256 绕过门禁渲染。
-# 裸 SHA-256 是「文件哈希」，模型拿到文件就能重算伪造；HMAC 带一个模型不可知的密钥，模型算不出真签名。
-# 密钥拆成三段，运行时拼接，避免直接在代码里出现完整值（防模型读代码直接抄走密钥）。
+# 任务/状态完整性校验：签名绑定任务内容、门禁状态与检查器代码。
+# 随包固定密钥可由源码重建，不提供对拥有本机写权限者的防篡改保证。
 def _hmac_secret():
     _a = "tunjing"
     _b = "baodian"
@@ -131,7 +129,7 @@ EMOTION_MUSCLE_CUES = {
     # ── 12 大主动表演情绪底色 ──
     "anger_rage":       "simmering with furious rage; brows drawn sharply together with tense glabella and jaw muscles bulging as nostrils flare, settling into a lethal unblinking glare within 1.5 seconds",
     "cold_wrath":       "frozen in icy wrath; eyes narrowing beneath a lowered brow and chest breathing slowing to a cold steady rhythm, settling into a motionless intimidating stare within 1.5 seconds",
-    "grief_sorrow":     "overtaken by deep sorrow; inner eyebrows lifting subtly as glistening tear film pools along the lower eyelids and chest rises in a shaky sigh, settling within 1.5 seconds",
+    "grief_sorrow":     "overtaken by deep sorrow; inner eyebrows lifting subtly as tear film gathers along the lower eyelids and chest rises in a shaky sigh, settling within 1.5 seconds",
     "humiliated_tears": "stung by humiliated grief; eye rims reddening with a tear rolling down the cheek while teeth bite hard into the lower lip, settling into a trembling silence within 1.5 seconds",
     "triumph_smirk":    "radiating calculating triumph; eyes curving with sharp satisfaction and one corner of the lips lifting 3 mm into a victorious smirk, holding steady within 1.5 seconds",
     "warm_joy":         "softened by genuine warmth; brow relaxing with bright warm eye contact and cheeks lifting into a natural gentle smile, settling smoothly within 1.5 seconds",
@@ -206,18 +204,19 @@ AI_CLICHE_PATTERNS = [
 ]
 
 
+DIALOGUE_LEAD_SECONDS = 1.1
+DIALOGUE_TAIL_SECONDS = 0.7
+
+
 def dialogue_needed_seconds(line_text):
-    """
-    对白物理时长核算（拆镜决策的真源）：
-    说话常速 4.1 字/秒 + 开口前 1.1s 动作起势延迟 + 句尾 0.7s 反应余韵 + 省略号停顿。
-    返回这句台词「必须占用的秒数」，拆镜时用它判断：超单镜上限就拆镜，声音连续画面切。
-    """
-    clean = re.sub(r"\[.*?\]", "", (line_text or "")).strip()
+    """Shared speech budget: lead, audible text, pauses, and final reaction."""
+    clean = re.sub(r"\[.*?\]|<[^>]+>", "", (line_text or "")).strip()
     if not clean:
         return 0.0
-    zh_chars = len(re.findall(r"[一-龥]", clean))
-    ellipses = clean.count("…") + clean.count("...")
-    return 1.6 + (zh_chars / 4.1) + (ellipses * 0.5)
+    non_ascii = sum(1 for c in clean if ord(c) > 127 and c.isalnum())
+    words = len(re.findall(r"[A-Za-z0-9]+(?:['’-][A-Za-z0-9]+)*", clean))
+    pauses = len(re.findall(r"…+|\.{3,}", clean))
+    return DIALOGUE_LEAD_SECONDS + DIALOGUE_TAIL_SECONDS + non_ascii / 4.1 + words / 2.5 + pauses * 0.5
 
 
 def check_dialogue_human_quality(line_text, shot_dur=4.0):
@@ -236,11 +235,9 @@ def check_dialogue_human_quality(line_text, shot_dur=4.0):
             issues.append(f"检测到 AI 翻译腔/网文套话「{pat}」，请改为 12 字以内的活人短句、反问或拿捏把柄的狠话")
 
     zh_chars = len(re.findall(r"[一-龥]", clean))
-    ellipses = clean.count("…") + clean.count("...")
-    # 开口延迟 1.0s + 句尾反应 0.6s + 4.1字/秒
-    needed_sec = 1.6 + (zh_chars / 4.1) + (ellipses * 0.5)
-    if needed_sec > shot_dur + 0.25:
-        issues.append(f"台词「{clean}」({zh_chars}字) 含开口前1.0s延迟与句尾0.6s反应共需 {needed_sec:.1f}s，超出镜头时长 {shot_dur:.2f}s（必被截断尾音）")
+    needed_sec = dialogue_needed_seconds(line_text)
+    if needed_sec > shot_dur + 0.021:
+        issues.append(f"台词「{clean}」含开口前1.1s与句尾0.7s共需 {needed_sec:.2f}s，超出镜头时长 {shot_dur:.2f}s")
     return issues
 
 
@@ -460,7 +457,7 @@ def build_fullref_header(
     scene_props="",
     prop_ref="",
     prop_desc="key physical item anchored in <Picture 4>, preserving its exact printed markings, shape, and surface texture",
-    has_audio_refs=True,
+    has_audio_refs=False,
 ):
     """
     吞鲸 v4.0 权威头部装配：
@@ -526,25 +523,24 @@ def build_fullref_header(
         parts.append("Audio timbre anchors: <Audio 1> locks the vocal timbre of <Subject 1> (S1); <Audio 2> locks the vocal timbre of <Subject 2> (S2).")
     parts.append("")
 
+    reference_mode = "reference generation + audio reference" if has_audio_refs else "reference generation"
     # 3. summary
     parts.append("summary:")
     if tier == "C_empty_cut":
         parts.append("[reference generation] Pure architectural environment establishing shot within <Subject 3> anchored in <Picture 3>.")
     elif tier == "B_solo_female":
-        parts.append("[reference generation + audio reference] Tight single-subject emotional reaction of <Subject 1> within <Subject 3>.")
+        parts.append(f"[{reference_mode}] Tight single-subject emotional reaction of <Subject 1> within <Subject 3>.")
     elif tier == "B_solo_male":
-        parts.append("[reference generation + audio reference] Tight single-subject dominant focus on <Subject 2> within <Subject 3>.")
+        parts.append(f"[{reference_mode}] Tight single-subject dominant focus on <Subject 2> within <Subject 3>.")
     else:
-        parts.append("[reference generation + audio reference] High-tension dramatic interaction between <Subject 1> and <Subject 2> within <Subject 3>.")
+        parts.append(f"[{reference_mode}] High-tension dramatic interaction between <Subject 1> and <Subject 2> within <Subject 3>.")
     parts.append("")
 
     # 4. retention_analysis
     parts.append("retention_analysis:")
     if tier == "B_solo_female":
         parts.append("<Subject 1>: fully_preserved - facial identity, exact hairstyle, body anatomy, and skin texture are strictly locked to <Picture 1>.")
-        parts.append("<Subject 2>: absent_from_frame - not in frame for this tight solo angle.")
     elif tier == "B_solo_male":
-        parts.append("<Subject 1>: absent_from_frame - not in frame for this tight solo angle.")
         parts.append("<Subject 2>: fully_preserved - masculine facial identity, physique, and skin tone are strictly locked to <Picture 2>.")
     elif tier != "C_empty_cut":
         if is_undress:
@@ -673,7 +669,7 @@ def _dialogue_blocking(shot):
 def build_shot_description(shot, index, total_shots, dur, size_desc, cam_desc,
                            lines="", speaker="女子A", scene="hotel suite",
                            emotion="default", voiceover=False, hold_last_second=False,
-                           female_screen_side="left"):
+                           female_screen_side="left", tier="A_two_shot"):
     """
     编译单镜画面与独立 SPEECH 行（100% 对齐 R1~R12 全肯定语法 + 正反打视线互补锁 + 先静后动三段式运镜）
     """
@@ -762,6 +758,9 @@ def build_shot_description(shot, index, total_shots, dur, size_desc, cam_desc,
         comp_lock = ("COMPOSITION LOCK: Medium-close framing cropped from chest to head on shoulders, collarbone, and unbuttoning fingers, "
                      "with <Subject 2> in full wardrobe. ")
 
+    if tier == "C_empty_cut":
+        size_desc = "wide architectural establishing shot revealing the room layout and environment"
+
     segmented_cam = format_segmented_camera_en(cam_desc, dur, shot_size=shot.get("size", ""))
 
     # 唯一 Camera: 指令行 + 分号 (;) 黄金分割律
@@ -778,7 +777,7 @@ def build_shot_description(shot, index, total_shots, dur, size_desc, cam_desc,
     else:
         cut_phrase = OFFICIAL_CUT_PHRASES[index % len(OFFICIAL_CUT_PHRASES)]
         t0_val = shot.get("t0", round(index * dur, 2))
-        shot_prefix = f"Camera: {size_desc}, {segmented_cam}.\n[Shot {index+1}] At {t0_val:.2f}s, {cut_phrase} {size_desc}, {segmented_cam}; "
+        shot_prefix = f"Camera: {size_desc}, {segmented_cam}.\n[Shot 1] At 0.00s, {cut_phrase} {size_desc}, {segmented_cam}; "
         at_str = "At 0.00s, actively in motion, inheriting kinetic momentum from the previous shot: "
 
     raw_action = shot.get("text_en") or shot.get("text") or ""
@@ -829,10 +828,11 @@ def build_shot_description(shot, index, total_shots, dur, size_desc, cam_desc,
             speech_line = (f"\nSPEECH: {spk_tag} says in an off-screen voiceover: <d>[Chinese]{lines}</d> "
                            f"while {spk_pronoun} lips remain completely closed.")
         else:
-            t_mid_start = min(1.10, round(dur * 0.25, 2))
-            t_mid_end = max(t_mid_start + 0.8, round(dur - 0.70, 2))
+            t_mid_start = min(DIALOGUE_LEAD_SECONDS, max(0.0, dur - DIALOGUE_TAIL_SECONDS))
+            t_mid_end = max(t_mid_start, round(dur - DIALOGUE_TAIL_SECONDS, 2))
+            listener_clause = (f" while {listener_tag} keeps {listener_pronoun} lips completely closed and motionless" if tier == "A_two_shot" else "")
             speech_line = (f"\nSPEECH: From {t_mid_start:.2f}s to {t_mid_end:.2f}s, {muscle_cue}, "
-                           f"{spk_tag} says: <d>[Chinese]{lines}</d> while {listener_tag} keeps {listener_pronoun} lips completely closed and motionless.")
+                           f"{spk_tag} says: <d>[Chinese]{lines}</d>{listener_clause}.")
 
     full_shot_desc = f"{shot_prefix}{body_text}{tail}{speech_line}"
     return sanitize_positive_only(full_shot_desc)
@@ -844,12 +844,16 @@ def single_shot_prompt(shot, index, total_shots, dur, size_desc, cam_desc,
                        male_desc="mature man anchored in <Picture 2>, preserving his exact masculine facial identity, hairstyle, skin tone, and muscular build",
                        scene_props="", prop_ref="", prop_desc="key physical item anchored in <Picture 4>, preserving its exact printed markings, shape, and surface texture",
                        emotion="default", voiceover=False, hold_last_second=False,
-                       tier="A_two_shot", has_audio_refs=True, aspect="9:16"):
+                       tier="A_two_shot", has_audio_refs=False, aspect="9:16"):
     """
     吞鲸 v4.0 对外唯一装配接口：
     - 输出纯净正向送模提示词（不含 === NEGATIVE ===，杜绝正向反噬）
     - 100% 兼容 R1~R12 全肯定语法与吞鲸六段式结构锚点
     """
+    if not __import__("math").isfinite(dur) or not 0 < dur <= 12.25:
+        raise ValueError("Independent request duration must be within 0..12.25 seconds")
+    if dialogue_needed_seconds(lines) > dur + 0.021:
+        raise ValueError("Dialogue exceeds the independent request duration")
     pid = shot.get("pose", "")
     first_p = pid.split("->")[0]
     is_undress = "undress" in first_p
@@ -876,7 +880,7 @@ def single_shot_prompt(shot, index, total_shots, dur, size_desc, cam_desc,
         shot, index, total_shots, dur, size_desc, cam_desc,
         lines=lines, speaker=speaker, scene=scene,
         emotion=emotion, voiceover=voiceover, hold_last_second=hold_last_second,
-        female_screen_side=female_screen_side
+        female_screen_side=female_screen_side, tier=tier
     )
 
     parts = _official_ref2va_header(header)

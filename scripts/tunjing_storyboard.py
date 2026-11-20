@@ -116,59 +116,31 @@ def shot_time_bounds(dur, n, actions):
 
 
 def build_prompt(seq, dur=10.0, aspect="9:16", lines="", idea="", scene="当前场景"):
+    from tunjing_core import single_shot_prompt, dialogue_needed_seconds
+    from tunjing_scene import normalize_aspect
     poses, recipes = load_poses(), load_recipes()
+    unknown = [pid for pid in seq if pid not in poses]
+    if not seq or unknown:
+        raise ValueError(f"Unknown or empty pose sequence: {unknown}")
+    if not 0 < dur <= 12.25:
+        raise ValueError("Single-shot duration must be within 0..12.25 seconds")
+    if dialogue_needed_seconds(lines) > dur + 0.021:
+        raise ValueError("Dialogue exceeds the single-shot duration")
     actions = expand_poses(seq, poses, recipes)
-    n = min(6, max(3, len(actions)))
-    if len(actions) > n:
-        merged = []
-        i = 0
-        while i < len(actions):
-            cur = actions[i]
-            nxt = actions[i + 1] if i + 1 < len(actions) else None
-            if nxt and cur["kind"] == "establish" and nxt["kind"] == "push" and cur.get("pose") == nxt.get("pose"):
-                merged.append({"kind": "establish", "pose": cur["pose"], "text": cur["text"] + "；" + nxt["text"]})
-                i += 2
-                continue
-            merged.append(cur)
-            i += 1
-        actions = merged
-        while len(actions) > n:
-            idx = next((k for k, a in enumerate(actions) if a["kind"] == "transition" and 0 < k < len(actions) - 1), None)
-            if idx is None:
-                break
-            actions[idx - 1]["text"] += "；" + actions[idx]["text"]
-            actions.pop(idx)
-    while len(actions) < n:
-        actions.append(actions[-1])
-    actions = actions[:n]
-    bounds = shot_time_bounds(dur, n, actions)
-
-    pose_names = "→".join(poses.get(p, {}).get("nameZh", p) for p in order_physically(seq))
-    parts = header_block(dur, aspect, idea=idea, scene=scene, pose_names=pose_names)
-    parts.append("integrated_multimodal_description:")
-
-    spoken = False
-    for i, (act, bd) in enumerate(zip(actions, bounds)):
-        head = "[Shot 1] Live-action cinematic, medium close-up, camera locked static on a heavy tripod;" if i == 0 else f"[Shot {i+1}] At {bd['t0']:.2f}s, the shot transitions to medium close-up, camera locked static on a heavy tripod;"
-        body = with_scene_surface(act["text"], scene)
-        if i == 0:
-            body = body + insert_hint(act.get("pose", ""))
-        if lines and not spoken and i in (0, n // 2, n - 1):
-            body += f" <Subject 1> (S1) says: <d>[Chinese]{lines}</d> while <Subject 2> (S2) keeps his lips completely closed."
-            spoken = True
-        if i == n - 1:
-            body += f" Final state: Unbroken anatomical continuity and stable composition held steady to {dur:.2f}s."
-        parts.append(f"{head} {body}")
-        parts.append("")
-
-    parts.extend(footer_block(scene))
-    return "\n".join(parts)
+    if not actions:
+        raise ValueError("Sequence produced no actions")
+    bounds = shot_time_bounds(dur, len(actions), actions)
+    timed = " ".join(f"From {bound['t0']:.2f}s to {bound['t1']:.2f}s: {with_scene_surface(action['text'], scene)}." for action, bound in zip(actions, bounds))
+    shot = {"pose": "->".join(seq), "size": "mcu", "text_en": timed}
+    return single_shot_prompt(shot, 0, 1, dur, "medium close-up", "continuous subtle camera movement",
+                              lines=lines, idea=idea, scene=scene, aspect=normalize_aspect(aspect))
 
 
 def main():
     ap = argparse.ArgumentParser(description="吞鲸单镜多节拍精修引擎")
     ap.add_argument("--shot", help="单镜内姿势链，逗号分隔，如 cowgirl,doggy")
     ap.add_argument("--dur", type=float, default=10.0, help="单镜时长秒")
+    ap.add_argument("--aspect", default="9:16", help="9:16 / 16:9 / 1:1")
     ap.add_argument("--lines", default="", help="台词")
     ap.add_argument("--idea", default="", help="剧情描述")
     ap.add_argument("--scene", default="当前场景", help="场景名（自动适配承托面与声场）")
@@ -189,7 +161,7 @@ def main():
         ap.print_help()
         return
     seq = [s.strip() for s in args.shot.split(",") if s.strip()]
-    print(build_prompt(seq, args.dur, lines=args.lines, idea=args.idea, scene=args.scene))
+    print(build_prompt(seq, args.dur, aspect=args.aspect, lines=args.lines, idea=args.idea, scene=args.scene))
 
 
 if __name__ == "__main__":

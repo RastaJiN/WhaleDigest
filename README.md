@@ -3,6 +3,8 @@
 > 吞鲸工作室 · 精品漫剧极速生产引擎
 > 绑定吞鲸宝典内置引擎真源，1:1 复刻其姿势矩阵与提示词装配逻辑。
 
+工程接口与验收边界见 [工程契约](references/engineering-contract.md)。旧示例中的固定镜数、平均时长及就绪表述不能代替当前门禁与环境实测。
+
 ---
 
 ## 安装
@@ -50,7 +52,7 @@ python scripts/tunjing_storyboard.py --shot "bj,cowgirl,doggy,cum_butt" --dur 12
 python scripts/tunjing_gatekeeper.py <项目目录> [1-6]
 ```
 
-Gate 3 强制检查：逐镜景别、逐镜机位、平均单镜时长 ≤8s、换体位、3 次交合微距、口交特写。
+Gate 3 检查逐镜景别、机位和时长，并按实际内容类型核验必要的镜头。纯对白内容合法；时长依照对白预算与单镜上限判断。
 
 ### 4. 渲染后一键转剪映草稿工程 (无缝后期剪辑)
 
@@ -103,6 +105,8 @@ python scripts/tunjing_diff_audit.py <项目目录>
 ```bash
 python scripts/dryrun_test.py
 ```
+
+自检在独立临时目录验证中性样例的横竖屏生成、门禁与离线任务，不提交渲染。剪映草稿、模型加载、显存与画面质量仍需要在实际环境分别验收。
 
 ---
 

@@ -9,7 +9,8 @@ import sys
 import json
 import re
 from tunjing_task_source import (load_task_source, source_record, refresh_status,
-                                 require_source_audit, TaskSourceError)
+                                 require_source_audit, TaskSourceError, validate_batch_metadata,
+                                 stage_record, gate_evidence, validate_asset_image)
 from tunjing_compiler import lint_tunjing_prompt
 from tunjing_audio_contract import resolve_audio_contract
 
@@ -53,11 +54,25 @@ def audit_step_1(project_dir):
     if not os.path.exists(asset_dir):
         return False, "缺少 '00_资产' 文件夹！请先创建资产目录。"
     
-    files = os.listdir(asset_dir)
-    has_male = any(("男" in f or "male" in f.lower()) for f in files)
-    has_female = any(("女" in f or "female" in f.lower()) for f in files)
-    has_scene = any(("场景" in f or "scene" in f.lower() or "room" in f.lower() or "corridor" in f.lower()) for f in files)
-    
+    files = [name for name in os.listdir(asset_dir) if os.path.isfile(os.path.join(asset_dir, name))]
+    def role(name, kind):
+        stem = os.path.splitext(name)[0].lower()
+        if kind == "male":
+            return "男" in stem or bool(re.search(r"(?:^|[^a-z])male(?:$|[^a-z])", stem))
+        if kind == "female":
+            return "女" in stem or bool(re.search(r"(?:^|[^a-z])female(?:$|[^a-z])", stem))
+        return bool(re.search(r"场景|scene|room|corridor", stem))
+    valid = []
+    for name in files:
+        try:
+            validate_asset_image(os.path.join(asset_dir, name))
+            valid.append(name)
+        except (ValueError, OSError):
+            continue
+    has_male = any(role(name, "male") for name in valid)
+    has_female = any(role(name, "female") for name in valid)
+    has_scene = any(role(name, "scene") for name in valid)
+
     if not (has_male and has_female):
         return False, f"资产门禁未通过：'00_资产' 目录下必须包含男主、女主的定版母版（实测检测到: {files}）"
     if not has_scene:
@@ -88,7 +103,7 @@ def audit_step_2(project_dir):
             continue  # 体位调度链标注行，不是对白
         if re.search(r'[:：]\s*[^：:]*[\。\！\？\，]', s):
             dialogue_lines.append(s)
-    if dialogue_lines and ("<d>" not in content or "</d>" not in content):
+    if any(not re.search(r"<d>\s*(?:\[[^]]+\])?\s*[^<\s].*?</d>", line) for line in dialogue_lines):
         return False, "剧本门禁未通过：检测到对白但未用 <d>[Chinese]...</d> 标签包裹！有对白必须加台词标签（防台词烫印成字幕）；纯动作戏无对白可豁免。"
 
     # 去AI味翻译腔与书面套话拦截
@@ -105,150 +120,61 @@ def audit_step_2(project_dir):
 
     # 支持自然中文动作描述或标准 ID 识别（无需为迎合正则污染剧本标题）
     ZH_ACTION_KEYWORDS = re.findall(r'(站立按墙|按墙后入|后入|跪姿口交|口交|深喉|传教士|正面交合|观音坐莲|女上位|骑乘|侧卧|指插|自慰|潮吹|高潮|捏下巴|壁咚|递卡|房卡)', content)
-    ids_in_script = set(re.findall(r'\b([a-z][a-z_]{1,24})\b', content)) & KNOWN_IDS
-    if not ids_in_script and len(set(ZH_ACTION_KEYWORDS)) < 2:
+    ids_in_script = set(re.findall(r'\b([a-z][a-z_0-9]{1,24})\b', content)) & KNOWN_IDS
+    if len(ids_in_script) + len(set(ZH_ACTION_KEYWORDS)) < 2:
         return False, "剧本门禁未通过：剧本必须包含至少 2 处明确的阶段性动作/体位推进描述（支持自然中文如“站立按墙/口交/观音坐莲/正面交合”或吞鲸标准 ID）！"
         
     detected_desc = sorted(ids_in_script) if ids_in_script else sorted(set(ZH_ACTION_KEYWORDS))
     return True, f"刀锋剧本结构、活人感台词与动作演进 ({detected_desc[:6]}) 验收 PASS！允许进入分镜设计。"
 
 def audit_step_3(project_dir):
-    """门禁 3：拆镜密度、景别机位与纯血单轨路由检查（含台词时长毫秒级咬合）"""
-    sb_file = os.path.join(project_dir, "分镜.md")
-    if not os.path.exists(sb_file):
-        return False, "缺少 '分镜.md'！请先拆解分镜。"
-        
-    with open(sb_file, "r", encoding="utf-8") as f:
-        content = f.read()
-        
-    # 1. 必须有生理阻断微距
-    if not re.search(r'1\.[0-9]s|微距|生理阻断|特写', content):
-        return False, "分镜门禁未通过：核心交合动作前后必须插入至少一个 1.2s~2.0s 的生理阻断微距特写（指节抓白/足弓反弓/咬唇）！"
-        
-    # 2. 检查纯血 Ref2V 轨道标注
-    if "Ref2V" not in content:
-        return False, "分镜门禁未通过：全片必须统一采用纯血 Ref2V 轨道 [Track: Ref2V]！"
-        
-    # 3. 严格核算：台词与分镜秒数物理咬合 (中文 3.0 字/s + 1.0s 气口)
-    # 匹配格式示例: [SHOT-xx] ... 时长: 3.5s ... 台词: <d>...</d>
-    shot_blocks = re.split(r'###?\s*SHOT-|\n\[SHOT-', content)
-    for block in shot_blocks[1:]:
-        sec_match = re.search(r'(\d+\.?\d*)\s*(?:秒|s)', block, re.IGNORECASE)
-        speech_match = re.search(r'<d>(.*?)</d>', block, re.DOTALL)
-        
-        if sec_match and speech_match:
-            duration = float(sec_match.group(1))
-            speech = speech_match.group(1).strip()
-            # 过滤掉 [Chinese] 或 [Language] 标记
-            speech_clean = re.sub(r'\[.*?\]', '', speech)
-            # 计算纯中文字数
-            char_count = len(re.findall(r'[\u4e00-\u9fa5]', speech_clean))
-            # 包含省略号增加气口停顿
-            ellipsis_count = speech_clean.count('…') + speech_clean.count('...')
-            
-            # 物理时间需求
-            required_time = (char_count / 3.0) + (ellipsis_count * 0.8) + 1.0
-            
-            if required_time > duration + 0.2: # 允许 0.2s 容差
-                return False, f"分镜门禁未通过：台词与镜头时长严重脱节！检测到该镜头时长仅 {duration}s，但台词 '{speech_clean}' 包含 {char_count} 字，物理朗读需要至少 {required_time:.1f}s！请增加镜头时长或精简台词！"
+    """Validate each declared shot using the same duration and dialogue contract as generation."""
+    from tunjing_core import dialogue_needed_seconds, STAGING_IDS
+    path = os.path.join(project_dir, "分镜.md")
+    if not os.path.isfile(path):
+        return False, "缺少 '分镜.md'"
+    with open(path, encoding="utf-8") as handle:
+        content = handle.read()
+    marks = list(re.finditer(r"(?im)^[ \t]*(?:#{1,4}[ \t]*)?\[?SHOT[ _-]*\d+[^\r\n]*", content))
+    if not marks:
+        return False, "分镜未检测到逐镜 SHOT 标记"
+    for index, mark in enumerate(marks):
+        block = content[mark.start():marks[index+1].start() if index+1 < len(marks) else len(content)]
+        if not re.search(r"Track:[ \t]*Ref2V\b", block, re.IGNORECASE):
+            return False, f"镜头 {index+1} 缺少 Track: Ref2V"
+        duration_match = re.search(r"(?:时长[：:]\s*)?(\d+(?:\.\d+)?)\s*(?:s\b|秒)", block, re.IGNORECASE)
+        if not duration_match:
+            return False, f"镜头 {index+1} 缺少时长"
+        duration = float(duration_match.group(1))
+        if not 39/24 - .021 <= duration <= 294/24 + .021:
+            return False, f"镜头 {index+1} 时长 {duration} 超出 H3 39..294 帧范围"
+        if not re.search(r"\b(?:wide|mcu|cu|macro|hip|face)\b|全景|中景|中近景|近景|微距|特写", block, re.IGNORECASE):
+            return False, f"镜头 {index+1} 缺少景别"
+        if not re.search(r"机位[：:]|Camera:|static_|slow_push|push_tension|arc_subtle|固定|过肩|俯|仰|推|拉|摇|手持", block, re.IGNORECASE):
+            return False, f"镜头 {index+1} 缺少机位"
+        speeches = re.findall(r"<d>(.*?)</d>", block, re.IGNORECASE | re.DOTALL)
+        if len(re.findall(r"<d>", block, re.IGNORECASE)) != len(speeches):
+            return False, f"镜头 {index+1} 台词标签未闭合"
+        required = 0
+        for speech in speeches:
+            speech = re.sub(r"^\s*\[[^]]+\]", "", speech).strip()
+            if not speech:
+                return False, f"镜头 {index+1} 台词为空"
+            required += dialogue_needed_seconds(speech)
+        if required > duration + .021:
+            return False, f"镜头 {index+1} 台词需要 {required:.3f}s，镜长仅 {duration}s"
+    return True, f"逐镜结构、轨道、景别机位、H3 时长与共享台词预算 PASS ({len(marks)} 镜)"
 
-    # 4. 吞鲸高能段三级戏份分档检测逻辑（含口交戏 / 独处自慰戏 / 纯插入交合戏）
-    KNOWN_IDS = {'fix_attire', 'loosen_tie', 'chin_lift', 'lap_sit', 'titjob', 'cut_insert', 'spatial_shift', 'stand_doggy_wall', 'undress', 'squat_bj', 'clutch_fabric', 'chest_push', 'cunnilingus', 'lip_thumb_wipe', 'tip_lick', 'prop_insert', 'nape_grip', 'breast_rub', 'mirror_ear_whisper', 'stand_face_hug', 'cowgirl', 'prone_bj', 'squirting_climax', 'collapse_sob', 'facesit', 'shoulder_strap_slide', 'facefuck', 'trace_collar', 'floor_missionary', 'deepthroat', 'sixty_nine', 'fingering', 'penis_slap', 'squat_cowgirl', 'doggy', 'blocking_2s', 'stand_bend_doggy', 'tie_pull_seduce', 'reverse_cowgirl', 'srs_female', 'neck_nuzzle_inhale', 'nipple_lick', 'ear_whisper_tease', 'kiss_pin', 'footjob', 'kiss_fondle', 'pov_insert', 'cum_belly', 'side_spoon', 'wall_caging', 'face_insert', 'finger_interlock_pin', 'bedside_stand', 'cum_face', 'srs_male', 'thigh_grind', 'bj', 'cum_butt', 'leg_brush_tease', 'kiss_force', 'solo_masturbate', 'cum_chest', 'creampie', 'turn_evade', 'waist_pull_collision', 'step_back_guard', 'ball_lick', 'cowgirl_upright', 'table_doggy', 'outro_solo', 'lap_sit_back', 'ass_rub', 'missionary_legup', 'env_establish', 'sofa_cunni', 'kiss_her', 'head_thrust', 'carry_insert', 'wrist_pin', 'back_arch_lean', 'present_item', 'grab_lapel', 'side_face', 'missionary', 'anal', 'handjob', 'rub_temple'}
-    ORAL_SET = {"bj","squat_bj","prone_bj","deepthroat","head_thrust","facefuck","sixty_nine","tip_lick","ball_lick","penis_slap"}
-    SOLO_SET = {"solo_masturbate","fingering","clit_tease"}
-
-    all_poses = set(re.findall(r'\b([a-z][a-z_]{1,24})\b', content)) & KNOWN_IDS
-    has_oral_pose = bool(all_poses & ORAL_SET)
-    is_solo_only = bool(all_poses) and all_poses.issubset(SOLO_SET | {"undress", "breast_rub", "squirting_climax"})
-
-    if has_oral_pose:
-        if not re.search(r'口交|深喉|oral|blowjob|bj|deepthroat|facefuck', content, re.IGNORECASE):
-            return False, "分镜门禁未通过：本集包含口爱动作，必须明确标注【口交/深喉近景特写】！"
-    elif is_solo_only:
-        if not re.search(r'微距|特写|macro|cu', content, re.IGNORECASE):
-            return False, "分镜门禁未通过：独处戏份必须包含指节/湿润微距特写！"
-    else:
-        if len(all_poses) < 2:
-            return False, (f"分镜门禁未通过：双人高能戏必须中途【换体位】！"
-                           f"实测仅检测到 {len(all_poses)} 个姿势，必须包含至少 2 个不同吞鲸标准姿势！")
-
-    if not is_solo_only:
-        if len(all_poses) < 2:
-            return False, (f"分镜门禁未通过：单集肉戏必须中途【换体位】！"
-                           f"实测仅检测到 {len(all_poses)} 个姿势，必须包含至少 2 个不同吞鲸标准姿势！")
-        macro_matches = re.findall(r'交合特写|结合部微距|结合特写|macro pelvic|macro penetration|macro interlocking', content, re.IGNORECASE)
-        if len(macro_matches) < 3:
-            return False, f"分镜门禁未通过：双人高能戏必须包含至少 3 次【独立的交合/结合部微距特写】！实测仅检测到 {len(macro_matches)} 次！"
-
-        # 反作弊锁 2：核验每个标注【交合特写/结合部微距】的镜头块是否名实相符（景别必须为 hip/macro，严禁在 mcu/wide/cu 镜头上硬贴假标签凑数！）
-        for blk in shot_blocks[1:]:
-            if re.search(r'交合特写|结合部微距', blk):
-                if not re.search(r'\b(hip|macro)\b|腰胯特写|微距', blk, re.IGNORECASE):
-                    return False, "分镜门禁未通过：[反作弊拦截·假特写标签] 检测到某镜头贴了【交合特写/结合部微距】标签，但该镜景别并非 hip/macro！严禁用脚本机械贴标签凑数！"
-
-    # D. 【拆镜密度门禁】逐镜必须有景别 + 机位，且镜头密度符合硬件上限
-    shot_marks = re.findall(r'(?:^|\n)\s*(?:###?\s*)?\[?SHOT[\s\-]?\d+', content, re.IGNORECASE)
-    shot_count = len(shot_marks)
-    if shot_count == 0:
-        return False, ("分镜门禁未通过：未检测到任何 [SHOT-N / ### SHOT N] 镜头标记！"
-                       "必须逐镜拆解，每镜独立成条。")
-
-    # 景别必须逐镜出现（mcu/cu/macro/hip/face/wide 或中文景别词）
-    size_hits = len(re.findall(r'\b(?:wide|mcu|cu|macro|hip|face)\b|中景|中近景|近景|微距|腰胯特写|面部特写', content))
-    if size_hits < shot_count * 0.8:
-        return False, (f"分镜门禁未通过：【景别标注缺失】！检测到 {shot_count} 个镜头，"
-                       f"但仅 {size_hits} 处景别标注。逐镜必须标明景别"
-                       f"（wide/mcu/cu/macro/hip/face 或中景/中近景/近景/微距/腰胯特写/面部特写）！")
-
-    # 机位必须逐镜出现
-    cam_hits = len(re.findall(r'push_tension|pull_reveal|tilt_up_desire|tilt_down_impact|ots_depth|arc_subtle|handheld_breath|low_upward|high_downward|static_side|static_rear|static_front|low_hip|ots|high_angle|slow_push|follow_soft|固定|侧机位|后侧|低机位|过肩|俯|仰|推|拉|摇|手持', content))
-    if cam_hits < shot_count * 0.8:
-        return False, (f"分镜门禁未通过：【机位标注缺失】！检测到 {shot_count} 个镜头，"
-                       f"但仅 {cam_hits} 处机位标注。逐镜必须标明机位"
-                       f"（static_side/static_rear/low_hip/ots/high_angle 等）！")
-
-    # 镜头时长硬边界：单镜不得超过机器 12s 上限（H3 物理上限），节奏呼吸由引擎 allocate_exact_h3_frames 负责
-    # 门禁不卡「平均时长」，只卡「单镜超 12s 机器上限」这一条硬边界，防止某镜被塞爆
-    shot_blocks_d = re.split(r'###?\s*SHOT-|\n\[SHOT-', content)
-    over_limit = []
-    for blk in shot_blocks_d[1:]:
-        dm = re.search(r'(\d+\.?\d*)\s*(?:秒|s)\b', blk, re.IGNORECASE)
-        if dm:
-            dv = float(dm.group(1))
-            if dv > 12.5:
-                over_limit.append(dv)
-    if over_limit:
-        return False, (f"分镜门禁未通过：【单镜超机器上限】检测到 {len(over_limit)} 镜超过 12s 机器物理上限 "
-                       f"（{sorted(over_limit)[:3]}...），H3 单镜最长约 12 秒，超长的镜头必须拆开！")
-        
-    # ── 肉戏骨架契约 (Sex Scene Skeleton Contract)：骨头里的公式，硬死锁 ──
-    # 只要本集含肉戏体位（非纯文戏调度），以下四条缺一即熔断，是「好肉戏」的结构完整性下限。
-    # 1) 每场肉戏 ≥1 次体位交换；2) 分镜 ≥3 次交合特写；3) 穿插男女主表情反馈反打；4) 全程呻吟/声音反馈。
-    sex_staging = {"env_establish", "blocking_2s", "prop_insert", "cut_insert", "spatial_shift", "outro_solo",
-                   "srs_male", "srs_female", "present_item"}
-    sex_poses = all_poses - sex_staging
-    if sex_poses:
-        # 1) 体位交换：肉戏姿势 ≥2 个（前面已有 len(all_poses)<2 拦截，这里对纯肉戏姿势再锁一次）
-        if len(sex_poses) < 2:
-            return False, (f"分镜门禁未通过：【肉戏公式·体位交换缺失】本集肉戏仅 {len(sex_poses)} 个体位 "
-                           f"({sorted(sex_poses)})，一场肉戏必须至少交换 1 次体位（≥2 个不同交合/口交/前戏姿势）！")
-        # 2) 交合特写 ≥3 次：前面 macro_matches<3 已拦，这里语义明确为肉戏公式
-        # 3) 表情反馈穿插：肉戏必须穿插正反打表情反打 (srs_female/srs_male 或 face 景别表情镜)
-        reaction_hits = re.findall(r'srs_female|srs_male|表情|面部特写|face', content, re.IGNORECASE)
-        if len(reaction_hits) < 2:
-            return False, "分镜门禁未通过：【肉戏公式·表情反馈缺失】肉戏必须穿插女主/男主的表情反馈反打（srs_female/srs_male 正反打或面部特写），不能全程只看交合处！"
-        # 4) 全程呻吟/声音反馈：肉戏声场必须含呻吟/浪叫/粗喘等声音反馈（audio/声场/呻吟标注）
-        moan_hits = re.findall(r'呻吟|浪叫|粗喘|喘息|娇喘|气声|audio|呻吟|声场|音效|overall_soundscape|soundscape', content, re.IGNORECASE)
-        if not moan_hits:
-            return False, "分镜门禁未通过：【肉戏公式·声音反馈缺失】肉戏全程必须有女主呻吟/浪叫或男主粗喘等声音反馈标注（声场/音效/呻吟），不能全程无声！"
-
-    return True, "分镜【拆镜密度 + 逐镜景别机位 + 纯血Ref2V单轨 + 音画咬合 + 换体位与3次交合微距 + 肉戏公式死锁】全量验收 PASS！允许进入提示词编译。"
 
 def audit_step_4(project_dir):
     """Validate the prompts in the exact task selected for rendering."""
     try:
         task_path, batch, sha = load_task_source(project_dir)
         issues = []
+        try:
+            validate_batch_metadata(batch)
+        except ValueError as exc:
+            issues.append(str(exc))
         for index, shot in enumerate(batch["batch_shots"], 1):
             sid = shot.get("shot_id", shot.get("id", index))
             errors, _ = lint_tunjing_prompt(shot["prompt"])
@@ -305,7 +231,7 @@ def audit_step_5(project_dir):
     if missing:
         return False, f"终审门禁未通过：终审报告缺少以下维度的审核记录: {missing}！必须六项全检！"
 
-    return True, f"生成前六大维度机器盲检与 SHA-256 防伪签名 ({expected_sha[:12]}...) 100% PASS！正式签发放行出片！"
+    return True, f"工程结构与输入绑定核验 PASS ({expected_sha[:12]}...)；创作质量与画面效果仍需人工及实测审核。"
 
 def check_gate(project_dir, target_step=None):
     status = load_status(project_dir)
@@ -341,9 +267,9 @@ def check_gate(project_dir, target_step=None):
     
     if target_step in auditors:
         try:
-            before_source = source_record(project_dir) if target_step in (4, 5) else None
+            before_source = source_record(project_dir) if target_step in (4, 5) else stage_record(project_dir, target_step)
             ok, msg = auditors[target_step](project_dir)
-            if ok and before_source is not None and source_record(project_dir) != before_source:
+            if ok and (source_record(project_dir) if target_step in (4, 5) else stage_record(project_dir, target_step)) != before_source:
                 ok, msg = False, "任务在核验过程中发生变化，请重新核验"
         except (ValueError, OSError) as exc:
             ok, msg = False, str(exc)
@@ -362,8 +288,7 @@ def check_gate(project_dir, target_step=None):
                         print("─" * 65)
                 except Exception:
                     pass
-            if target_step in (4, 5):
-                status.setdefault("gate_sources", {})[str(target_step)] = before_source
+            status.setdefault("gate_sources", {})[str(target_step)] = gate_evidence(project_dir, target_step)
             if target_step not in status["passed_steps"]:
                 status["passed_steps"].append(target_step)
             if target_step == curr:
@@ -375,7 +300,7 @@ def check_gate(project_dir, target_step=None):
             status["passed_steps"] = [s for s in status["passed_steps"] if s < target_step]
             status["current_step"] = min(curr, target_step)
             for key in list(status.get("gate_sources", {})):
-                if int(key) >= target_step:
+                if not str(key).isdigit() or int(key) >= target_step:
                     del status["gate_sources"][key]
             save_status(project_dir, status)
             print(f"\n[X] 门禁拦截 (FAIL): {msg}")

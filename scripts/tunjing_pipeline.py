@@ -20,6 +20,7 @@ import sys
 import json
 import argparse
 import subprocess
+import re
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, BASE_DIR)
@@ -27,7 +28,7 @@ sys.path.insert(0, BASE_DIR)
 
 def run(cmd, cwd=None):
     """执行子命令，返回 (stdout, returncode)"""
-    r = subprocess.run(cmd, shell=True, capture_output=True, text=True, cwd=cwd or BASE_DIR)
+    r = subprocess.run(cmd, shell=False, capture_output=True, text=True, encoding="utf-8", errors="replace", cwd=cwd or BASE_DIR, env={**os.environ, "PYTHONIOENCODING": "utf-8"})
     return r.stdout + r.stderr, r.returncode
 
 
@@ -164,13 +165,24 @@ def main():
 
     # ── 3. 拆镜 + 装提示词（调用 tunjing_scene.py） ──
     step_banner(3, "拆镜 + 六段式提示词装配（tunjing_scene.py）")
-    cmd = (f'python "{BASE_DIR}/tunjing_scene.py" --chain "{chain_str}" '
-           f'--total {args.total} --scene "{args.scene}" '
-           f'--aspect "{args.aspect}" --out-dir "{project_dir}"')
-    if args.lines:
-        cmd += f' --lines "{args.lines}"'
+    cmd = [sys.executable, os.path.join(BASE_DIR, "tunjing_scene.py"), "--chain", chain_str,
+           "--total", str(args.total), "--scene", args.scene, "--aspect", args.aspect, "--out-dir", project_dir]
+    dialogue_arg = args.lines
+    if not dialogue_arg:
+        from tunjing_scene import build_scene
+        planned, _ = build_scene(pose_ids, args.total, poses)
+        extracted = re.findall(r"(?m)^([^\n<>：:]{1,40})[：:]\s*<d>(?:\[[^]]+\])?(.*?)</d>", script_txt)
+        if not extracted:
+            extracted = [("女子A", text) for text in re.findall(r"<d>(?:\[[^]]+\])?(.*?)</d>", script_txt, re.S)]
+        available = [i for i, shot in enumerate(planned, 1) if shot.get("pose") != "env_establish"]
+        if len(extracted) > len(available):
+            print("[X] 对白句数超过可承载镜头数，请提供显式 --lines 映射")
+            sys.exit(1)
+        dialogue_arg = "|".join(f"{index}:{speaker.strip()}:{text.strip()}" for index, (speaker, text) in zip(available, extracted))
+    if dialogue_arg:
+        cmd.extend(["--lines", dialogue_arg])
     if args.idea:
-        cmd += f' --idea "{args.idea}"'
+        cmd.extend(["--idea", args.idea])
     out, rc = run(cmd)
     print(out[-2000:])
     if rc != 0:
@@ -181,7 +193,7 @@ def main():
     step_banner(4, "六步门禁逐关核验（tunjing_gatekeeper.py）")
     gate_failed = False
     for g in range(1, 7):
-        out, rc = run(f'python "{BASE_DIR}/tunjing_gatekeeper.py" "{project_dir}" {g}')
+        out, rc = run([sys.executable, os.path.join(BASE_DIR, "tunjing_gatekeeper.py"), project_dir, str(g)])
         tail = out.strip().splitlines()
         # Gate 6 是渲染放行（无 "门禁通过" 文案，直接看 returncode）
         is_pass = (rc == 0) and ("门禁通过" in out or "PASS" in out or g == 6)
@@ -194,10 +206,18 @@ def main():
         print("\n[X] 有门禁未通过，请查看上方具体拦截项修复后重跑。流水线已停在失败关。")
         sys.exit(1)
 
-    # ── 5. 生成签字单（复用 diff_audit 终审） ──
-    step_banner(5, "生成终审签字单（SHA-256 授权码）")
-    out, rc = run(f'python "{BASE_DIR}/tunjing_diff_audit.py" "{project_dir}"')
-    print(out[-1500:])
+    # ── 5. 复用 Gate 5 已生成的签字单，避免重写报告后令 Gate 5 状态失效 ──
+    step_banner(5, "读取终审签字单（复用 Gate 5 报告）")
+    report_path = os.path.join(project_dir, "审查", "生成前终审报告.md")
+    if not os.path.isfile(report_path):
+        print("[X] Gate 5 未生成终审报告，停止流水线")
+        sys.exit(1)
+    with open(report_path, "r", encoding="utf-8") as report_handle:
+        report_text = report_handle.read()
+    if "PASS" not in report_text or "REJECT" in report_text:
+        print("[X] 终审报告状态无效，停止流水线")
+        sys.exit(1)
+    print(f"[✓] 复用 Gate 5 终审报告: {report_path}")
 
     print("\n" + "=" * 70)
     print("✅ 吞鲸端到端流水线全部跑通！产物已落盘：")
@@ -210,7 +230,7 @@ def main():
     if not args.dry:
         step_banner(6, "渲染提示")
         print("【提醒】若需正式渲染，请监制审阅签字单后运行：")
-        print(f'  python "{BASE_DIR}/tunjing_runner.py" "{project_dir}" --confirm-token <签字单上的8位授权码>')
+        print(f'  python "{BASE_DIR}/tunjing_runner.py" "{project_dir}" --confirm-token <签字单上的授权码>')
     else:
         print("[--dry] 已省略渲染步骤，只查分镜+提示词落盘。")
 

@@ -163,14 +163,17 @@ ASPECT_RES = {
 def normalize_aspect(aspect):
     """把任意 aspect 字符串归一化成 '9:16' / '16:9' / '1:1' 三档之一，默认竖屏 9:16。"""
     a = (aspect or "9:16").strip().lower()
-    a = a.replace("portrait", "").replace("widescreen", "").replace("landscape", "").strip()
+    if a in ("landscape", "widescreen", "wide", "横屏", "横"):
+        return "16:9"
+    if a in ("portrait", "竖屏", "竖"):
+        return "9:16"
     if "9:16" in a or a in ("9:16", "portrait", "竖屏", "竖"):
         return "9:16"
     if "16:9" in a or a in ("16:9", "landscape", "横屏", "横", "wide"):
         return "16:9"
     if "1:1" in a or a in ("1:1", "square", "方"):
         return "1:1"
-    return "9:16"
+    raise ValueError(f"Unsupported aspect: {aspect!r}")
 
 def is_landscape(aspect):
     return normalize_aspect(aspect) == "16:9"
@@ -289,6 +292,57 @@ def plan_shot(pid, poses):
     return plan
 
 
+def prepare_dialogue_shots(shots, lines, want_total):
+    """Apply indexed dialogue and split text into independently budgeted requests."""
+    line_map = {}
+    if lines:
+        for item in lines.split("|"):
+            parts = item.strip().split(":", 2)
+            match = re.fullmatch(r"\s*(?:shot\s*)?(\d+)\s*", parts[0], re.I)
+            if match and len(parts) >= 2:
+                line_map[int(match.group(1))] = (parts[1].strip(), parts[2].strip()) if len(parts) == 3 else ("女子A", parts[1].strip())
+            elif len(lines.split("|")) == 1:
+                line_map[1] = ("女子A", lines.strip())
+            else:
+                raise ValueError(f"Invalid indexed dialogue: {item!r}")
+    if any(i < 1 or i > len(shots) for i in line_map):
+        raise ValueError("Dialogue shot index is outside the scene")
+    expanded, mapped = [], {}
+    for old_index, shot in enumerate(shots, 1):
+        if old_index not in line_map:
+            expanded.append(shot)
+            continue
+        speaker, text = line_map[old_index]
+        if shot.get("pose") == "env_establish":
+            raise ValueError("An empty establishing shot cannot carry character dialogue")
+        if shot.get("pose") in ("srs_male", "srs_female"):
+            desired = "srs_female" if ("女" in speaker or "S1" in speaker or "Subject 1" in speaker) else "srs_male"
+            if shot["pose"] != desired:
+                original_pose = shot["pose"]
+                entry = load_poses()[desired]
+                shot = dict(shot, pose=desired, pose_zh=entry.get("nameZh", desired), pose_en=entry.get("nameEn", desired),
+                            text=(entry.get("beatsZh") or [""])[0], text_en=(entry.get("beatsEn") or [""])[0], original_pose=original_pose)
+        chunks, chunk = [], ""
+        for character in re.findall(r"[A-Za-z0-9]+(?:[’'-][A-Za-z0-9]+)*|\s+|.", text, re.S):
+            if chunk and dialogue_needed_seconds(chunk + character) > 12.25:
+                chunks.append(chunk)
+                chunk = character
+            else:
+                chunk += character
+        if chunk:
+            chunks.append(chunk)
+        for part_index, part in enumerate(chunks):
+            current = dict(shot)
+            current["required_sec"] = max(min(float(shot.get("required_sec") or 0), 12.25), dialogue_needed_seconds(part))
+            if part_index:
+                current["dialogue_continuation"] = True
+            expanded.append(current)
+            mapped[len(expanded)] = (speaker, part)
+    shots[:] = expanded
+    _, actual = allocate_exact_h3_frames(shots, want_total)
+    return mapped, actual
+
+
 def allocate_exact_h3_frames(shots, want_total_sec):
     """
     全集总帧同余配平算法（对白 + 画面双驱动，不按姿势档位查表）：
@@ -326,13 +380,15 @@ def allocate_exact_h3_frames(shots, want_total_sec):
         k = 2
         while (5 + 17 * k) / 24.0 < sec and k < 17:
             k += 1
-        return min(k, 17)  # k=17 → 294帧 ≈ 12.25s 机器上限
+        if not __import__("math").isfinite(sec) or sec < 0 or sec > 12.25:
+            raise ValueError(f"required_sec outside 0..12.25: {sec}")
+        return k
 
     ks_min = [sec_to_k(s.get("required_sec", 2.0)) for s in shots]
 
     # 3. 目标总帧对齐：sum(f_i) = 5*N + 17*sum(k_i)，尽量贴近 want_total_sec
     target_raw_frames = max(sum(5 + 17 * k for k in ks_min), round(float(want_total_sec) * 24))
-    k_total_needed = round((target_raw_frames - 5 * n_shots) / 17.0)
+    k_total_needed = max(sum(ks_min), min(17 * n_shots, round((target_raw_frames - 5 * n_shots) / 17.0)))
 
     # 当前已用的 k 总和（每个镜头的最小 k）
     k_used = sum(ks_min)
@@ -364,14 +420,14 @@ def allocate_exact_h3_frames(shots, want_total_sec):
             guard += 1
             i = eligible[idx % len(eligible)]
             idx += 1
-            if ks[i] > 2:
+            if ks[i] > ks_min[i]:
                 ks[i] -= 1
                 extra += 1
 
     # 5. 打破连续 3 镜同帧长（保持心电图呼吸，严禁平铺一刀切）
     for i in range(2, n_shots):
         if ks[i] == ks[i - 1] == ks[i - 2]:
-            if ks[i - 1] > 2 and ks[i] < 17:
+            if ks[i - 1] > ks_min[i - 1] and ks[i] < 17:
                 ks[i - 1] -= 1
                 ks[i] += 1
 
@@ -397,6 +453,10 @@ def build_scene(chain, total_sec, poses):
     3) 相邻肉戏体位之间自动插入物理换位桥（文戏原语与正反打之间直接硬切，不乱塞换体位桥）
     4) Auto-DP 强制消除连续同景别或连续静态机位，执行工作景别阶梯弹跳（Working Shot Ladder）与接戏过继说明
     """
+    if not chain or any(pid not in poses for pid in chain):
+        raise ValueError("Scene requires known pose identifiers")
+    if not __import__("math").isfinite(total_sec) or total_sec <= 0:
+        raise ValueError("Scene duration must be positive and finite")
     shots = []
     for i, pid in enumerate(chain):
         p = poses.get(pid)
@@ -655,48 +715,10 @@ def save_project_artifacts(out_dir, shots, actual_total, want_total, lines="",
         shots[0]["size"] = "mcu"
         shots[0]["cam"] = "tilt_up_desire"
 
-    # 解析高级台词字典
-    line_map = {}
-    if lines:
-        if ":" in lines or "|" in lines:
-            for item in lines.split("|"):
-                parts = item.strip().split(":", 2)
-                idx_m = re.search(r"\d+", parts[0]) if parts else None
-                if len(parts) == 3 and idx_m:
-                    line_map[int(idx_m.group(0))] = (parts[1].strip(), parts[2].strip())
-                elif len(parts) == 2 and idx_m:
-                    line_map[int(idx_m.group(0))] = ("女子A", parts[1].strip())
-        else:
-            line_map[1] = ("女子A", lines.strip())
-
-    # ── 对白驱动时长重排（台词物理时长决定镜头时长 + 长台词拆镜）──
-    # 正解：分镜时长由「剧本画面 + 对白时长」决定，不是姿势档位查表。
-    # 对白太长 → 该镜时长拉长；超单镜机器上限(12s) → 拆成说话镜 + 听者反应镜，声音连续画面切。
-    if line_map:
-        # 先把每句台词算好物理时长，写进对应镜头
-        MAX_SHOT_SEC = 12.25  # 单镜机器上限（k=17 → 294帧 ≈ 12.25s）
-        for shot_idx in sorted(line_map.keys()):
-            spk, txt = line_map[shot_idx]
-            need = dialogue_needed_seconds(txt)
-            if need <= 0:
-                continue
-            # 该台词挂在第 shot_idx 镜（1-based）；找到对应 shot
-            if shot_idx - 1 < len(shots):
-                target = shots[shot_idx - 1]
-                # 该镜最小可见时长 = max(画面动作可见时长, 对白时长)
-                cur_req = target.get("required_sec", 0) or 0
-                target["required_sec"] = max(cur_req, need)
-                if need > MAX_SHOT_SEC:
-                    # 长台词超单镜上限：拆镜——本镜只装前半句，剩余后半句拆给"听者反应镜"
-                    # 这里标记台词过长，由调用方/下游按"声不断画切"处理（本镜承载到 12s，其余续下一镜）
-                    target["dialogue_overflow"] = True
-                    target["dialogue_full_text"] = txt
-                    target["dialogue_speaker"] = spk
-
-        # 台词驱动后，重新按 required_sec 分配帧长与时间戳
-        shots2, actual_tmp = allocate_exact_h3_frames(shots, want_total)
-        # 注：shots 是同一列表引用，allocate 已原地改好 dur/frames/t0/t1
-
+    line_map, actual_total = prepare_dialogue_shots(shots, lines, want_total)
+    total_frames_sum = sum(s["frames"] for s in shots)
+    sb_lines[1] = f"- 目标总时长：{want_total}s | 实际闭合总时长：{actual_total}s | 总帧数：{total_frames_sum}帧 | 总镜数：{len(shots)} 镜 | 画幅：{orient_label} {res['width']}x{res['height']}"
+    prompt_lines[1] = f"- 场景：{scene} | 总镜数：{len(shots)} 镜 | 总帧数：{total_frames_sum}帧 | 画幅：{orient_label}"
 
     # 单调服装状态机：若前序为文戏调度/对峙肢体/挑逗或脱衣，初始处于穿衣状态；一旦经过脱衣或进入实质前戏/肉戏后单向锁死为素身
     is_nude_state = True
@@ -753,7 +775,7 @@ def save_project_artifacts(out_dir, shots, actual_total, want_total, lines="",
         prompt_text = single_shot_prompt(
             s, i - 1, len(shots), s["dur"], size_desc_en, cam_desc_en,
             lines=shot_line, speaker=shot_speaker, idea=idea, scene=scene, pose_names=pose_names,
-            emotion=auto_emotion, tier=tier_label, has_audio_refs=True, aspect=normalize_aspect(aspect)
+            emotion=auto_emotion, tier=tier_label, has_audio_refs=False, aspect=normalize_aspect(aspect)
         )
 
         extra_tags = []
@@ -820,7 +842,9 @@ def save_project_artifacts(out_dir, shots, actual_total, want_total, lines="",
             "references": ref_keys,
             "audio_fx_mode": parse_audio_fx_mode(shot_speaker, shot_line, voiceover=("心声" in explicit_emo or "独白" in explicit_emo or "OS" in explicit_emo.upper())),
             "ref_images": ref_imgs,
-            "ref_audios": ["female_voice.wav", "male_voice.wav"]
+            "audio_mode": "H3_native_audio",
+            "audio_reference_required": False,
+            "ref_audios": []
         })
 
     while macro_tag_idx < 3:
@@ -865,7 +889,8 @@ def save_project_artifacts(out_dir, shots, actual_total, want_total, lines="",
 
 
 def print_table(shots, actual_total, want_total, lines="", idea="", scene="卧室",
-                pose_names="", emit_prompts=True):
+                pose_names="", emit_prompts=True, aspect="9:16"):
+    line_map, actual_total = prepare_dialogue_shots(shots, lines, want_total)
     print("=" * 100)
     print(f"🐳 吞鲸宝典 v4.0 · 全剧集 Auto-DP 拆镜表    目标 {want_total}s / 实际 {actual_total}s / 共 {len(shots)} 镜")
     print("=" * 100)
@@ -888,25 +913,13 @@ def print_table(shots, actual_total, want_total, lines="", idea="", scene="卧�
     if not emit_prompts:
         return
 
-    line_map = {}
-    if lines:
-        if ":" in lines or "|" in lines:
-            for item in lines.split("|"):
-                parts = item.strip().split(":", 2)
-                idx_m = re.search(r"\d+", parts[0]) if parts else None
-                if len(parts) == 3 and idx_m:
-                    line_map[int(idx_m.group(0))] = (parts[1].strip(), parts[2].strip())
-                elif len(parts) == 2 and idx_m:
-                    line_map[int(idx_m.group(0))] = ("女子A", parts[1].strip())
-        else:
-            line_map[1] = ("女子A", lines.strip())
-
     print("=" * 100)
     print("=== 逐镜完整送模提示词（R1~R12 全肯定语法，可直接贴进 H3）===")
     print("=" * 100)
     for i, s in enumerate(shots, 1):
-        size_desc_en = SHOT_SIZES_EN[s["size"]]
-        cam_desc_en = CAMS_EN.get(s["cam"], CAMS_EN["push_tension"])
+        size_desc_en = pick_dict(is_landscape(aspect), SHOT_SIZES_EN_LANDSCAPE, SHOT_SIZES_EN)[s["size"]]
+        cam_dict = pick_dict(is_landscape(aspect), CAMS_EN_LANDSCAPE, CAMS_EN)
+        cam_desc_en = cam_dict.get(s["cam"], cam_dict["push_tension"])
         shot_line = ""
         shot_speaker = "女子A"
         if i in line_map:
@@ -920,7 +933,7 @@ def print_table(shots, actual_total, want_total, lines="", idea="", scene="卧�
         prompt = single_shot_prompt(
             s, i - 1, len(shots), s["dur"], size_desc_en, cam_desc_en,
             lines=shot_line, speaker=shot_speaker, idea=idea, scene=scene, pose_names=pose_names,
-            tier=tier_label
+            tier=tier_label, aspect=normalize_aspect(aspect)
         )
         print(f"\n{'─' * 100}")
         print(f"### SHOT {i:02d}  {s['dur']}s ({s['t0']}-{s['t1']}s)  "
@@ -955,12 +968,14 @@ def main():
         return
 
     chain = [x.strip() for x in args.chain.split(",") if x.strip()]
+    unknown = [pid for pid in chain if pid not in poses]
+    if not chain or unknown:
+        ap.error(f"Unknown or empty pose chain: {unknown}")
+    normalize_aspect(args.aspect)
     shots, actual = build_scene(chain, args.total, poses)
     pose_names = "→".join(poses.get(p, {}).get("nameZh", p) for p in chain)
 
     if args.out_dir:
-        print_table(shots, actual, args.total, lines=args.lines, idea=args.idea,
-                    scene=args.scene, pose_names=pose_names, emit_prompts=False)
         save_project_artifacts(args.out_dir, shots, actual, args.total,
                                lines=args.lines, idea=args.idea,
                                scene=args.scene, pose_names=pose_names,
@@ -968,7 +983,7 @@ def main():
     else:
         print_table(shots, actual, args.total, lines=args.lines, idea=args.idea,
                     scene=args.scene, pose_names=pose_names,
-                    emit_prompts=not args.table_only)
+                    emit_prompts=not args.table_only, aspect=args.aspect)
 
 
 if __name__ == "__main__":
