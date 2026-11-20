@@ -94,7 +94,7 @@ def bind_frames_to_subtitles(video_path, sub_path, out_dir):
     script_dir = os.path.dirname(os.path.abspath(__file__))
     if script_dir not in sys.path:
         sys.path.insert(0, script_dir)
-    import srt_to_script as s2s
+    import teardown_srt_to_script as s2s
 
     with io.open(sub_path, encoding='utf-8-sig', errors='replace') as fh:
         raw = fh.read()
