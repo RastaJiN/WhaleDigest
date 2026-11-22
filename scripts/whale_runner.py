@@ -30,7 +30,7 @@ from whale_audio_contract import resolve_audio_contract, validate_workflow_audio
 from whale_compiler import lint_task_prompt
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DEFAULT_WF = os.path.join(BASE_DIR, "..", "references", "workflows", "whale_v4_master_api.json")
+DEFAULT_WF = os.path.join(BASE_DIR, "..", "references", "whale_schema.json")
 
 # ── 画幅解析（横屏项目必备）：ResolutionSelector 只认带括号的原生枚举值 ──────
 # 取值必须与 ComfyUI ResolutionSelector 的 COMBO 枚举逐字一致，否则整条 prompt 校验失败、静默零产出

@@ -222,9 +222,6 @@ def audit_step_4(project_dir):
                 p=(assets/name).resolve()
                 if not p.is_relative_to(assets): raise ValueError('参考图不在项目资产目录内')
                 if not p.is_file():
-                    casts = {c for s in batch['batch_shots'] for c in s.get('cast', [])}
-                    if (name.startswith("female") and "S1" not in casts) or (name.startswith("male") and "S2" not in casts):
-                        continue
                     raise ValueError(f'资产文件 {name} 不存在于 00_资产')
                 validate_asset_image(p)
         for index, shot in enumerate(batch["batch_shots"], 1):
@@ -234,13 +231,6 @@ def audit_step_4(project_dir):
         
             if not is_beat:
                 errors, warnings = lint_task_prompt(shot, batch)
-                # 按需校验资产母版
-                assets = (Path(project_dir)/'00_资产').resolve()
-                cast = shot.get('cast', [])
-                if "S1" in cast and not (assets / "female_master.png").exists():
-                    errors.append("检测到 S1 (女) 但缺少 female_master.png")
-                if "S2" in cast and not (assets / "male_master.png").exists():
-                    errors.append("检测到 S2 (男) 但缺少 male_master.png")
                 issues.extend(f"{sid}: {error}" for error in errors)
                 for warning in warnings:
                     print(f"[提醒·{sid}] {warning}")
@@ -256,8 +246,21 @@ def audit_step_4(project_dir):
 def audit_step_5(project_dir):
     """门禁 5：生成前机器实测终审与 SHA-256 防伪签名核验（彻底废除手写假报告）"""
     import hashlib
-    # 审计逻辑已内聚，Gate 5 简化核验
-    return True, "终审逻辑核验 PASS！工程结构与输入绑定已确认。"
+    import whale_diff_audit as diff_mod
+
+    try:
+        batch_file, _, _ = load_task_source(project_dir)
+    except (ValueError, OSError) as exc:
+        return False, f"终审门禁未通过：任务源错误: {exc}"
+
+    # 自动调用 whale_diff_audit 进行真实盲检并签发带 SHA-256 指纹的终审报告
+    rep = diff_mod.audit_project(project_dir)
+    if rep.get("violations"):
+        diff_mod.write_signed_audit_report(project_dir, rep)
+        return False, f"终审门禁未通过：[机器盲检抓出 {len(rep['violations'])} 项真实违规] 首项: {rep['violations'][0]}"
+
+    report_file = diff_mod.write_signed_audit_report(project_dir, rep)
+    diff_mod.write_producer_receipt(project_dir, rep)
 
     with open(report_file, "r", encoding="utf-8") as f:
         content = f.read()

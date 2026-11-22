@@ -57,7 +57,7 @@ metadata:
          ↓ PASS
 [Gate 4：六段提示词动态编译] ➔ 校验 视频提示词.md 完整包含吞鲸标准六段式锚点 + 正向肯定句压油词 + OS 防对口型物理死锁 (实时读取 cast 核对资产)
          ↓ PASS
-[Gate 5：生成前终极自审] ➔ 对照 pre-render-audit-standard.md 完成六维度盲检，出具全 PASS 终审报告
+[Gate 5：生成前终极自审] ➔ 对照 engineering-contract.md 由 `whale_diff_audit.py` 完成六维度机器盲检，出具带 SHA-256 指纹的终审报告
          ↓ PASS
 [Gate 6：渲染打包门禁] ➔ 运行 export_comfy_payload.py 校验 批量任务.json ((F-5)%17==0 帧长合规)，放行 ComfyUI 批量出片
 ```
@@ -80,7 +80,7 @@ metadata:
 | `shot-design-and-bounce.md` | **视听弹跳分镜规范** |
 | `high-tension-mechanisms.md` | **高张力戏剧引擎** |
 | `femme-fatale-reversal.md` | **四大高阶人物关系势能模型** |
-| `pre-render-audit-standard.md` | **Gate 5 生成前自我终极审查标准** |
+| `engineering-contract.md` | **工程契约与 Gate 1–6 验收边界** |
 | `takeover-and-patching.md` | **在制项目热接盘与微创修复规范** |
 | `frame-qc-and-pipeline.md` | **五联抽帧质检与流水线接续** |
 
