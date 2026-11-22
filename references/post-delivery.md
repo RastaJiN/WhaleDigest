@@ -23,16 +23,16 @@
 
 - **`subtitles`**：每条须为 `{start_ms, end_ms, text}`（整数毫秒、同层不重叠、位于实际成片时长内）。`text` 必须逐字唯一核对到 `项目目录/剧本.md` 正文的完整对白原文（含标点），拒绝从动作注记、代码块、提示词或转写文本捞取，拒绝 ASS/HTML 控制符与换行。
 - **`cards`**：每条须为 `{start_ms, end_ms, text, kind: "plain"}`。仅支持普通纯文本字卡（位于画面顶部安全区，字幕位于底部安全区，两者分轨独立）；遇到非 `plain`（如手机屏、系统面板、动态 HUD）明确报错拒绝，不静默降级。
-- **`music`**：交由 `tunjing_post_music.py` 逐条预览并显式确认后才能在 `check` / `render` 放行；详情见[逐曲确认与混音](post-music.md)。
+- **`music`**：交由 `whale_post_music.py` 逐条预览并显式确认后才能在 `check` / `render` 放行；详情见[逐曲确认与混音](post-music.md)。
 
 ## 最小调用命令
 
 ```bash
 # 只读校验（不写任何文件，不改原片）
-python scripts/tunjing_post.py check <项目目录> --input <已有成片.mp4>
+python scripts/whale_post.py check <项目目录> --input <已有成片.mp4>
 
 # 渲染新成片（绝不覆盖输入或已有目标；临时文件验收通过后才原子落盘）
-python scripts/tunjing_post.py render <项目目录> --input <已有成片.mp4> --out <新成片.mp4>
+python scripts/whale_post.py render <项目目录> --input <已有成片.mp4> --out <新成片.mp4>
 ```
 
 ## 边界与限制

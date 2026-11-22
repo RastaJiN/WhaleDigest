@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-吞鲸宝典 · 冲突发动机 (Tunjing Drama Engine — 剧作核心心脏)
+吞鲸宝典 · 冲突发动机 (WhaleDigest Drama Engine — 剧作核心心脏)
 
 解决宝典「只会拍、不会写戏」的根本缺环，实现「能文能武」统一：
 正经剧靠它生出独立成立的戏（情绪/反转/和解）；成人剧靠它把人牢牢留住再推向肉戏。

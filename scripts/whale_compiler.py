@@ -220,7 +220,7 @@ def _lint_single_prompt(text):
     return errors, warnings
 
 
-def lint_tunjing_prompt(text):
+def lint_whale_prompt(text):
     errors, warnings = _lint_single_prompt(text)
     if isinstance(text, str) and "```" in text:
         errors.append("任务 prompt 必须是原文，不能包含 Markdown 代码围栏")
@@ -230,11 +230,11 @@ def lint_tunjing_prompt(text):
 def lint_task_prompt(shot, batch=None):
     """Validate immutable model text against this shot's actual reference inventory."""
     if __package__:
-        from .tunjing_audio_contract import resolve_audio_contract
+        from .whale_audio_contract import resolve_audio_contract
     else:
-        from tunjing_audio_contract import resolve_audio_contract
+        from whale_audio_contract import resolve_audio_contract
     prompt = shot.get('prompt')
-    errors, warnings = lint_tunjing_prompt(prompt)
+    errors, warnings = lint_whale_prompt(prompt)
     if not isinstance(prompt, str):
         return errors, warnings
     try:
@@ -252,10 +252,10 @@ def lint_task_prompt(shot, batch=None):
     return errors, warnings
 
 
-def lint_tunjing_document(text):
+def lint_whale_document(text):
     """Validate all text fences and reject unfinished fences instead of skipping them."""
     if "```" not in text:
-        return lint_tunjing_prompt(text)
+        return lint_whale_prompt(text)
     blocks, current, language, opened = [], [], None, False
     errors, warnings = [], []
     for line in text.splitlines():
@@ -277,7 +277,7 @@ def lint_tunjing_document(text):
     if not blocks:
         errors.append("Markdown 文档中没有完整的 text 提示词代码块")
     for index, block in enumerate(blocks, 1):
-        errs, warns = lint_tunjing_prompt(block)
+        errs, warns = lint_whale_prompt(block)
         errors.extend(f"block {index}: {item}" for item in errs)
         warnings.extend(f"block {index}: {item}" for item in warns)
     return errors, warnings
@@ -293,7 +293,7 @@ def main():
     except (OSError, UnicodeError) as exc:
         print(f"读取文件失败: {exc}")
         return 1
-    errors, warnings = (lint_tunjing_document(text) if args.file.lower().endswith(".md") else lint_tunjing_prompt(text))
+    errors, warnings = (lint_whale_document(text) if args.file.lower().endswith(".md") else lint_whale_prompt(text))
     for warning in warnings:
         print("WARNING: " + warning)
     for error in errors:

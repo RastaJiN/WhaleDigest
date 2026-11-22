@@ -3,9 +3,9 @@ import json
 import re
 
 if __package__:
-    from . import tunjing_blocking as blocking
+    from . import whale_blocking as blocking
 else:
-    import tunjing_blocking as blocking
+    import whale_blocking as blocking
 
 _HEADER = '<!-- tunjing:execution-inputs '
 _INPUTS = '- 执行输入：'

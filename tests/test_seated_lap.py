@@ -4,7 +4,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'scripts'))
-from tunjing_pose_select import select_poses_from_script
+from whale_pose_select import select_poses_from_script
 
 
 class SeatedLap(unittest.TestCase):
@@ -17,7 +17,7 @@ class SeatedLap(unittest.TestCase):
             ('cowgirl_upright', 'torso upright', 'tilt_up_desire', 'vertical tilt-up'),
         ]:
             with self.subTest(pid=pid), tempfile.TemporaryDirectory() as d:
-                subprocess.run([sys.executable, '-X', 'utf8', str(ROOT/'scripts/tunjing_scene.py'),
+                subprocess.run([sys.executable, '-X', 'utf8', str(ROOT/'scripts/whale_scene.py'),
                                 '--out-dir', d, '--chain', pid, '--total', '5', '--scene', '椅子'],
                                check=True, capture_output=True)
                 shot = json.loads((Path(d)/'批量任务.json').read_text('utf-8-sig'))['batch_shots'][0]

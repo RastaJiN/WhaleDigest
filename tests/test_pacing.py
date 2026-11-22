@@ -2,7 +2,7 @@ import sys
 from pathlib import Path
 import unittest
 sys.path.insert(0, str(Path(__file__).parents[1] / 'scripts'))
-import tunjing_pacing as p
+import whale_pacing as p
 
 class Pace(unittest.TestCase):
     def test_backward_compatible(self):

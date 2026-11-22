@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-吞鲸宝典 v3.0 · 跨机权威完整性自检器 (Tunjing Master Self-Test)
+吞鲸宝典 v3.0 · 跨机权威完整性自检器 (WhaleDigest Master Self-Test)
 全部采用相对路径（可移植到任何机器、任何目录），一次性核验：
 1. 全部 28 个核心文件存在且非空
 2. 3 个吞鲸内置真源 JSON 结构合法（55 套姿势 / 40 条换位配方 / 9 套转换模板）
@@ -21,7 +21,7 @@ sys.path.insert(0, SCRIPT_DIR)
 REQUIRED_FILES = [
     "SKILL.md",
     "README.md",
-    "references/tunjing_poses_matrix.json",
+    "references/whale_poses_matrix.json",
     "references/transition_recipes.json",
     "references/oneshot_transitions.json",
     "references/official-prompt-assembly-spec.md",
@@ -34,28 +34,28 @@ REQUIRED_FILES = [
     "references/文戏镜头语言手册.md",
     "references/takeover-and-patching.md",
     "references/github-sync.md",
-    "scripts/tunjing_core.py",
-    "scripts/tunjing_scene.py",
-    "scripts/tunjing_storyboard.py",
-    "scripts/tunjing_dialogue.py",
-    "scripts/tunjing_pipeline.py",
-    "scripts/tunjing_pose_select.py",
-    "scripts/tunjing_drama.py",
-    "scripts/tunjing_script_writer.py",
-    "scripts/tunjing_resolver.py",
-    "scripts/tunjing_gatekeeper.py",
-    "scripts/tunjing_compiler.py",
+    "scripts/whale_core.py",
+    "scripts/whale_scene.py",
+    "scripts/whale_storyboard.py",
+    "scripts/whale_dialogue.py",
+    "scripts/whale_pipeline.py",
+    "scripts/whale_pose_select.py",
+    "scripts/whale_drama.py",
+    "scripts/whale_script_writer.py",
+    "scripts/whale_resolver.py",
+    "scripts/whale_gatekeeper.py",
+    "scripts/whale_compiler.py",
     "scripts/export_comfy_payload.py",
     "scripts/export_jianying_draft.py",
-    "scripts/tunjing_diff_audit.py",
+    "scripts/whale_diff_audit.py",
     "scripts/dryrun_test.py",
-    "scripts/tunjing_runner.py",
-    "scripts/tunjing_mastering.py",
-    "scripts/tunjing_advisor.py",
+    "scripts/whale_runner.py",
+    "scripts/whale_mastering.py",
+    "scripts/whale_advisor.py",
     "scripts/selftest.py",
     "templates/episode_template.md",
-    "templates/tunjing_rhythm_120s.md",
-    "templates/tunjing_rhythm_300s.md",
+    "templates/whale_rhythm_120s.md",
+    "templates/whale_rhythm_300s.md",
 ]
 
 
@@ -74,7 +74,7 @@ def main():
     print(f"[✓] 1/4 文件清单核验 PASS (共 {len(REQUIRED_FILES)} 个核心文件全部就绪)")
 
     # 2. 真源 JSON 数据核验
-    with open(os.path.join(SKILL_DIR, "references/tunjing_poses_matrix.json"), encoding="utf-8") as f:
+    with open(os.path.join(SKILL_DIR, "references/whale_poses_matrix.json"), encoding="utf-8") as f:
         poses = json.load(f)
     with open(os.path.join(SKILL_DIR, "references/transition_recipes.json"), encoding="utf-8") as f:
         recipes = json.load(f)
@@ -94,7 +94,7 @@ def main():
     print(f"[✓] 3/4 脚本 AST 语法核验 PASS ({len(py_files)} 个 Python 引擎零语法错误)")
 
     # 4. 场地承托面动态适配核验
-    import tunjing_core as core
+    import whale_core as core
     test_out = core.with_scene_surface("女子A趴跪床上，双手抓紧床单", "温泉浴室")
     assert "床" not in test_out and ("tile" in test_out or "瓷砖" in test_out or "shower" in test_out), f"场地改写异常: {test_out}"
     print("[✓] 4/4 13类场地承托面与声场动态适配 (with_scene_surface) PASS")
@@ -102,7 +102,7 @@ def main():
     print("=" * 65)
     from dryrun_test import run_dryrun
     import tempfile
-    run_dryrun(tempfile.mkdtemp(prefix="tunjing_selftest_"))
+    run_dryrun(tempfile.mkdtemp(prefix="whale_selftest_"))
     print("PASS 文件、真源JSON、语法、场景适配及双画幅中性离线链路")
     print("=" * 65)
 

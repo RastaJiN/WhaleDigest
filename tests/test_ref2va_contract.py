@@ -8,7 +8,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'scripts'))
-compiler = import_module('tunjing_compiler')
+compiler = import_module('whale_compiler')
 
 # Local independent requests: six H3 fields, with our own Camera/SPEECH lines.
 BODY = '''subject_definitions:
@@ -39,9 +39,9 @@ class Ref2VAContract(unittest.TestCase):
     def test_dry_export_gate_and_workflow_reject_same_invalid_quote(self):
         bad = BODY.replace('单据呢？', '<Audio 1>单据呢？')
         batch = self.batch(bad)
-        gate = import_module('tunjing_gatekeeper')
+        gate = import_module('whale_gatekeeper')
         export = import_module('export_comfy_payload')
-        runner = import_module('tunjing_runner')
+        runner = import_module('whale_runner')
         with tempfile.TemporaryDirectory() as folder:
             (Path(folder) / '批量任务.json').write_text(json.dumps(batch, ensure_ascii=False), encoding='utf-8')
             for fn in (gate.audit_step_4, export.verify_batch_json):
@@ -54,7 +54,7 @@ class Ref2VAContract(unittest.TestCase):
             runner.build_shot_workflow(wf, batch['batch_shots'][0], batch=batch)
 
     def test_workflow_binds_original_bytes_and_rejects_stale_or_missing_text_route(self):
-        runner = import_module('tunjing_runner')
+        runner = import_module('whale_runner')
         batch = self.batch(BODY)
         shot = batch['batch_shots'][0]
         template = json.loads(Path(runner.DEFAULT_WF).read_text(encoding='utf-8'))
@@ -76,7 +76,7 @@ class Ref2VAContract(unittest.TestCase):
         # Vertical lines can be the actual grain of an oak wall, not guide marks.
         text = BODY.replace('unfolds the receipt.',
                 'unfolds the receipt beside an oak panel with vertical lines in the wood.')
-        e, w = compiler.lint_tunjing_prompt(text)
+        e, w = compiler.lint_whale_prompt(text)
         self.assertEqual([], e)
         self.assertTrue(w)
 
@@ -84,7 +84,7 @@ class Ref2VAContract(unittest.TestCase):
         for label in ('<Picture 1>', '<Audio 2>', '<Video 1>', '<Subject 2>'):
             with self.subTest(label=label):
                 bad = BODY.replace('单据呢？', '单据' + label + '呢？')
-                errors, _ = compiler.lint_tunjing_prompt(bad)
+                errors, _ = compiler.lint_whale_prompt(bad)
                 self.assertIn('台词内', ' '.join(errors))
                 self.assertIn(label, ' '.join(errors))
 
@@ -96,10 +96,10 @@ class Ref2VAContract(unittest.TestCase):
             'missing': BODY.replace('the counter,', '<Subject 9> at the counter,'),
             'duplicate': BODY.replace('summary:', '<Subject 1> is another visitor from <Picture 2>.\nsummary:'),
         }
-        self.assertEqual([], compiler.lint_tunjing_prompt(BODY)[0])
+        self.assertEqual([], compiler.lint_whale_prompt(BODY)[0])
         for kind, bad in cases.items():
             with self.subTest(kind=kind):
-                self.assertTrue(compiler.lint_tunjing_prompt(bad)[0], kind)
+                self.assertTrue(compiler.lint_whale_prompt(bad)[0], kind)
 
     def test_quote_is_one_line_inside_the_visual_timeline_only(self):
         with_newline = BODY.replace('单据呢？', '单据\n呢？')
@@ -107,11 +107,11 @@ class Ref2VAContract(unittest.TestCase):
         in_sound = BODY.replace(speech + '\n', '').replace('non_diegetic_music:', speech + '\nnon_diegetic_music:')
         for kind, bad in [('line', with_newline), ('section', in_sound)]:
             with self.subTest(kind=kind):
-                self.assertTrue(compiler.lint_tunjing_prompt(bad)[0], kind)
+                self.assertTrue(compiler.lint_whale_prompt(bad)[0], kind)
 
     def test_task_checks_actual_reference_capacity_not_just_syntax(self):
-        gate = import_module('tunjing_gatekeeper')
-        runner = import_module('tunjing_runner')
+        gate = import_module('whale_gatekeeper')
+        runner = import_module('whale_runner')
         template = json.loads(Path(runner.DEFAULT_WF).read_text(encoding='utf-8'))
         for label in ('<Picture 4>', '<Audio 1>', '<Video 1>'):
             with self.subTest(label=label), tempfile.TemporaryDirectory() as folder:
@@ -123,35 +123,35 @@ class Ref2VAContract(unittest.TestCase):
 
     def test_approved_reference_mapping_can_use_an_additional_explicit_image(self):
         text = BODY.replace('clerk from <Picture 1>.', 'clerk from <Picture 1> in the coat from <Picture 4>.')
-        self.assertEqual([], compiler.lint_tunjing_prompt(text)[0])
+        self.assertEqual([], compiler.lint_whale_prompt(text)[0])
 
     def test_explicit_speaker_mapping_is_not_a_global_subject_equals_voice_rule(self):
         # In H3 visual and vocal IDs are separate namespaces. Explicit mapping wins.
         text = BODY.replace('<Subject 1> is the clerk', '<Subject 1> (S2) is the clerk').replace('(S1) asks:', '(S2) asks:')
-        self.assertEqual([], compiler.lint_tunjing_prompt(text)[0])
+        self.assertEqual([], compiler.lint_whale_prompt(text)[0])
 
     def test_internal_headers_and_unrecognised_seventh_field_are_not_model_input(self):
         for kind, bad in [('preamble', 'Internal work order\n' + BODY),
                           ('control', BODY + '\n[Visual Constraints | Do Not Speak]\nprivate note'),
                           ('field', BODY + '\neditorial_notes: add score in post')]:
             with self.subTest(kind=kind):
-                self.assertTrue(compiler.lint_tunjing_prompt(bad)[0], kind)
-        self.assertEqual([], compiler.lint_tunjing_prompt(BODY.replace('单据呢？', 'editorial_notes: 请看。'))[0])
+                self.assertTrue(compiler.lint_whale_prompt(bad)[0], kind)
+        self.assertEqual([], compiler.lint_whale_prompt(BODY.replace('单据呢？', 'editorial_notes: 请看。'))[0])
 
     def test_near_miss_reference_cannot_escape_the_declared_subject_check(self):
         for label in ('<subject 9>', '<Subject 0>', '<Subject 03>', '<Picture 1 >'):
             with self.subTest(label=label):
-                self.assertTrue(compiler.lint_tunjing_prompt(BODY.replace('unfolds the receipt.', f'looks at {label}.'))[0])
+                self.assertTrue(compiler.lint_whale_prompt(BODY.replace('unfolds the receipt.', f'looks at {label}.'))[0])
 
     def test_published_model_example_is_a_single_lintable_request(self):
         spec = (ROOT / 'references/official-prompt-assembly-spec.md').read_text(encoding='utf-8-sig')
         examples = [block.split('\n```', 1)[0] for block in spec.split('```text\n')[1:]]
         self.assertEqual(len(examples), 1, 'Publish the final body, not conflicting fragments')
-        self.assertEqual(compiler.lint_tunjing_prompt(examples[0])[0], [])
+        self.assertEqual(compiler.lint_whale_prompt(examples[0])[0], [])
 
     def test_plain_words_comparisons_and_offscreen_voice_are_legal(self):
         for phrase in ('价格 < 3 元。', 'Picture 1 是个文件名。', '他问：“好了吗？”'):
             with self.subTest(phrase=phrase):
-                self.assertEqual([], compiler.lint_tunjing_prompt(BODY.replace('单据呢？', phrase))[0])
+                self.assertEqual([], compiler.lint_whale_prompt(BODY.replace('单据呢？', phrase))[0])
         shot = BODY.replace('<Subject 1> (S1) asks:', 'the narrator (voice S2) says in an off-screen voiceover:')
-        self.assertEqual([], compiler.lint_tunjing_prompt(shot)[0])
+        self.assertEqual([], compiler.lint_whale_prompt(shot)[0])

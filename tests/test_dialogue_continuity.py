@@ -9,10 +9,10 @@ import tempfile
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
-import tunjing_scene as scene
-from tunjing_compiler import lint_tunjing_prompt
-from tunjing_core import single_shot_prompt
-from tunjing_dialogue import build_blocking_lock
+import whale_scene as scene
+from whale_compiler import lint_whale_prompt
+from whale_core import single_shot_prompt
+from whale_dialogue import build_blocking_lock
 
 
 def make_prompt(pose, speaker, *, side='left', line='单据呢？', vo=False, audio=False):
@@ -34,7 +34,7 @@ class DialogueContinuity(unittest.TestCase):
         for actor, other in ((1, 2), (2, 1)):
             with self.subTest(actor=actor):
                 p = make_prompt('blocking_2s', f'S{actor}')
-                self.assertFalse(lint_tunjing_prompt(p)[0], lint_tunjing_prompt(p)[0])
+                self.assertFalse(lint_whale_prompt(p)[0], lint_whale_prompt(p)[0])
                 s, = speech_of(p)
                 self.assertEqual(s.count('<d>'), 1)
                 self.assertIn(f'<Subject {actor}>', s.split('<d>')[0])
@@ -51,7 +51,7 @@ class DialogueContinuity(unittest.TestCase):
                     pos = side if actor == 1 else ('right' if side == 'left' else 'left')
                     gaze = 'right' if pos == 'left' else 'left'
                     p = make_prompt(pose, f'S{actor}', side=side, audio=True)
-                    self.assertFalse(lint_tunjing_prompt(p)[0], lint_tunjing_prompt(p)[0])
+                    self.assertFalse(lint_whale_prompt(p)[0], lint_whale_prompt(p)[0])
                     self.assertNotIn(f'<Subject {other}>', p)
                     self.assertNotIn(f'<Audio {other}>', p)
                     lock = p.split('COMPOSITION LOCK:')[1].split('\n')[0]
@@ -64,19 +64,19 @@ class DialogueContinuity(unittest.TestCase):
 
     def test_voiceover_and_silent_shots(self):
         p = make_prompt('blocking_2s', 'S1', vo=True)
-        self.assertFalse(lint_tunjing_prompt(p)[0], lint_tunjing_prompt(p)[0])
+        self.assertFalse(lint_whale_prompt(p)[0], lint_whale_prompt(p)[0])
         s, = speech_of(p)
         self.assertIn('voiceover', s)
         self.assertRegex(s.lower(), r'(?:both|all visible).*lips.*closed')
         quiet = make_prompt('blocking_2s', '', line='')
         self.assertFalse(speech_of(quiet))
-        self.assertFalse(lint_tunjing_prompt(quiet)[0])
+        self.assertFalse(lint_whale_prompt(quiet)[0])
 
     def test_reaction_shot_accepts_offcamera_voice_without_an_extra_face(self):
         for pose, actor in [('srs_female', 2), ('srs_male', 1)]:
             with self.subTest(pose=pose):
                 prompt = make_prompt(pose, f'S{actor}', vo=True)
-                self.assertEqual(lint_tunjing_prompt(prompt)[0], [])
+                self.assertEqual(lint_whale_prompt(prompt)[0], [])
                 speech, = speech_of(prompt)
                 self.assertIn('voiceover', speech)
                 self.assertIn(f'S{actor}', speech)
@@ -84,11 +84,11 @@ class DialogueContinuity(unittest.TestCase):
                 self.assertIn('lips remain closed', speech)
 
     def test_single_shot_editor_uses_the_visible_speaker(self):
-        from tunjing_storyboard import build_prompt
+        from whale_storyboard import build_prompt
         for pose, actor in [('srs_male', 2), ('srs_female', 1)]:
             with self.subTest(pose=pose):
                 prompt = build_prompt([pose], dur=5.88, lines='确认。', scene='office')
-                self.assertEqual(lint_tunjing_prompt(prompt)[0], [])
+                self.assertEqual(lint_whale_prompt(prompt)[0], [])
                 speech, = speech_of(prompt)
                 self.assertIn(f'<Subject {actor}>', speech)
                 self.assertNotIn(f'<Subject {3 - actor}>', prompt)
@@ -103,9 +103,9 @@ class DialogueContinuity(unittest.TestCase):
     def test_gate_rejects_a_second_voice_in_one_request(self):
         p = make_prompt('blocking_2s', 'S1')
         s, = speech_of(p)
-        self.assertTrue(lint_tunjing_prompt(p.replace(s, s+'\nSPEECH: <Subject 2> (S2) says: <d>[Chinese]同一句。</d>.'))[0])
-        self.assertTrue(lint_tunjing_prompt(p.replace(s, 'SPEECH: <Subject 1> and <Subject 2> say: <d>[Chinese]你好。</d>.'))[0])
-        self.assertTrue(lint_tunjing_prompt(p.replace(s, s.split('</d>')[0]+'</d>. Both voices speak in unison.'))[0])
+        self.assertTrue(lint_whale_prompt(p.replace(s, s+'\nSPEECH: <Subject 2> (S2) says: <d>[Chinese]同一句。</d>.'))[0])
+        self.assertTrue(lint_whale_prompt(p.replace(s, 'SPEECH: <Subject 1> and <Subject 2> say: <d>[Chinese]你好。</d>.'))[0])
+        self.assertTrue(lint_whale_prompt(p.replace(s, s.split('</d>')[0]+'</d>. Both voices speak in unison.'))[0])
 
     def test_staging_does_not_invent_a_table(self):
         for scene_name, word in [('两人隔桌','table'), ('隔门','door'), ('贴墙','wall'), ('并排','side by side')]:
@@ -118,7 +118,7 @@ class DialogueContinuity(unittest.TestCase):
             for side in ('left','right'):
                 with self.subTest(aspect=aspect, side=side), tempfile.TemporaryDirectory() as temp:
                     project = Path(temp)
-                    (project/'.tunjing_axis.json').write_text(json.dumps({'female_screen_side':side}), encoding='utf-8')
+                    (project/'.whale_axis.json').write_text(json.dumps({'female_screen_side':side}), encoding='utf-8')
                     ids = ['env_establish','blocking_2s','srs_male','srs_female']
                     shots, sec = scene.build_scene(ids, 24, scene.load_poses())
                     with contextlib.redirect_stdout(io.StringIO()):
@@ -130,7 +130,7 @@ class DialogueContinuity(unittest.TestCase):
                     for row in rows:
                         prompt = row['prompt']
                         self.assertIn(prompt, doc)
-                        self.assertFalse(lint_tunjing_prompt(prompt)[0], lint_tunjing_prompt(prompt)[0])
+                        self.assertFalse(lint_whale_prompt(prompt)[0], lint_whale_prompt(prompt)[0])
                         if row['pose'] == 'blocking_2s':
                             self.assertRegex(prompt, fr'<Subject 1>[^.;\n]{{0,40}}screen[- ]{side}')
                         for sl in speech_of(prompt):

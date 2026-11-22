@@ -9,9 +9,9 @@ from test_scene_blocking import build
 
 # Exercise the same script-path imports used by the production CLIs.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
-audit_project = import_module('tunjing_diff_audit').audit_project
-audit_step_3 = import_module('tunjing_gatekeeper').audit_step_3
-stage_record = import_module('tunjing_task_source').stage_record
+audit_project = import_module('whale_diff_audit').audit_project
+audit_step_3 = import_module('whale_gatekeeper').audit_step_3
+stage_record = import_module('whale_task_source').stage_record
 
 
 class AdoptedBoardContract(unittest.TestCase):

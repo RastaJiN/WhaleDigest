@@ -6,12 +6,12 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'scripts'))
-import tunjing_pose_choice as choice
+import whale_pose_choice as choice
 
 
 class CandidateTest(unittest.TestCase):
     def test_every_matrix_name_resolves_to_its_own_id(self):
-        poses = json.loads((ROOT / 'references/tunjing_poses_matrix.json').read_text('utf8'))
+        poses = json.loads((ROOT / 'references/whale_poses_matrix.json').read_text('utf8'))
         index = choice.candidate_index(poses)
         self.assertEqual(list(index), sorted(poses))
         text = '\n'.join(f"镜{i}：{item['nameZh']}。" for i,item in enumerate(poses.values()))
@@ -22,7 +22,7 @@ class CandidateTest(unittest.TestCase):
             self.assertEqual(poses[pid]['category'], row['category'])
 
     def test_single_card_modes_and_order(self):
-        from tunjing_pose_select import load_poses
+        from whale_pose_select import load_poses
         with tempfile.TemporaryDirectory() as tmp:
             source = Path(tmp)/'剧本.md'
             state = source.with_name('分镜体位选择.json')
@@ -39,7 +39,7 @@ class CandidateTest(unittest.TestCase):
             self.assertEqual(run(), ['pillow_hump','lap_sit'])
 
     def test_directed_export_and_contradiction(self):
-        from tunjing_pose_select import load_poses
+        from whale_pose_select import load_poses
         import subprocess, os
         with tempfile.TemporaryDirectory() as tmp:
             folder = Path(tmp)
@@ -57,7 +57,7 @@ class CandidateTest(unittest.TestCase):
             save()
             with self.assertRaises(SystemExit): choose()
             step['support']='supine'; save()
-            cmd=[sys.executable,str(ROOT/'scripts/tunjing_pipeline.py'),str(source),'--dry','--total','60']
+            cmd=[sys.executable,str(ROOT/'scripts/whale_pipeline.py'),str(source),'--dry','--total','60']
             run=subprocess.run(cmd,capture_output=True,env={**os.environ,'PYTHONUTF8':'1'})
             batch=folder/'批量任务.json'
             self.assertTrue(batch.exists(),run.stderr)
@@ -74,7 +74,7 @@ class CandidateTest(unittest.TestCase):
             self.assertEqual(new['steps'][1]['pace'],'NA')
 
     def test_ordinary_furnishings_and_dialogue(self):
-        from tunjing_pose_select import load_poses
+        from whale_pose_select import load_poses
         with tempfile.TemporaryDirectory() as tmp:
             result = choice.choose('镜1：空镜，地板和床边。\n镜2：她用手指向门，站着说：“女上坐姿。”', Path(tmp)/'剧本.md', load_poses(), '')
             self.assertEqual(result, [])

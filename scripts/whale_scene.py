@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-吞鲸宝典 v4.0 · 全剧集视听导演调度与自动摄影拆镜引擎 (Tunjing Scene & Auto-DP Engine v4.0)
+吞鲸宝典 v4.0 · 全剧集视听导演调度与自动摄影拆镜引擎 (WhaleDigest Scene & Auto-DP Engine v4.0)
 
 核心特性：
 1. 全剧集弹性时长（60s ~ 360s 任意定）與自由文/肉节奏：
@@ -20,10 +20,10 @@
 
 import json, os, argparse, re
 from pathlib import Path
-import tunjing_blocking as blocking
-import tunjing_shot_facts as shot_facts
-import tunjing_pacing as pacing
-from tunjing_core import (
+import whale_blocking as blocking
+import whale_shot_facts as shot_facts
+import whale_pacing as pacing
+from whale_core import (
     load_poses, DE_OIL, NEG, FINISH_IDS, ORAL_ONLY, FOREPLAY, STAGING_IDS, TEASE_IDS, DRAMATIC_BODY_IDS,
     single_shot_prompt, parse_audio_fx_mode, dialogue_needed_seconds, resolve_speaker
 )
@@ -506,13 +506,13 @@ def build_scene(chain, total_sec, poses, recipes=None, decisions=None):
         raise ValueError("Scene requires known pose identifiers")
     if not __import__("math").isfinite(total_sec) or total_sec <= 0:
         raise ValueError("Scene duration must be positive and finite")
-    from tunjing_solo import PROP_IDS
+    from whale_solo import PROP_IDS
     shots = []
     for i, pid in enumerate(chain):
         decision = (decisions or {}).get(i)
         metadata = {k:decision[k] for k in ('source_scene','cast','dialogue','staging_note') if decision and k in decision}
         if decision and 'staging' not in decision:
-            from tunjing_pose_choice import direction
+            from whale_pose_choice import direction
             cue = direction(decision)
             visible = decision['visual'].rstrip('.') + '.'
             # The entry/transition instruction precedes the pose; the exit is last.
@@ -697,7 +697,7 @@ def resolve_slot_refs(shot_size, pose_id, is_nude_state=True, asset_dir=""):
         return "C_empty_cut", ["s1", "s1", "s1"], [s_img, s_img, s_img], lora_weight, spatial_zone
     if first_p in ("srs_male", "loosen_tie", "rub_temple"):
         return "B_solo_male", ["s1", "m1", "s1"], [s_img, m_img, s_img], lora_weight, spatial_zone
-    from tunjing_solo import PROP_IDS
+    from whale_solo import PROP_IDS
     if first_p in PROP_IDS or first_p in ("srs_female", "outro_solo", "back_arch_lean", "turn_evade", "collapse_sob", "fix_attire", "shoulder_strap_slide", "solo_masturbate", "finger_masturbate") or (
         shot_size == "face" and first_p not in ("bj", "squat_bj", "prone_bj", "deepthroat", "head_thrust", "facefuck")
     ):
@@ -781,7 +781,7 @@ def save_project_artifacts(out_dir, shots, actual_total, want_total, lines="",
     total_frames_sum = sum(s["frames"] for s in shots)
     # Freeze after shot grouping, blocking and dialogue allocation. Prompt assembly
     # below consumes this exact snapshot, not prose or a second pass of a selector.
-    from tunjing_pose_choice import BOARD, file_hash, prompt_hash, write_json
+    from whale_pose_choice import BOARD, file_hash, prompt_hash, write_json
     reviewed_metadata = {}
     binding = {}
     frozen = None
@@ -845,7 +845,7 @@ def save_project_artifacts(out_dir, shots, actual_total, want_total, lines="",
                     break
         if len(ref_imgs) >= 4 and ref_imgs[3]:
             s["prop_ref"] = ref_imgs[3]
-        from tunjing_prose import named_references
+        from whale_prose import named_references
         ref_imgs = named_references(s,ref_imgs,is_nude_state)
 
         # 优先采用台词括号显式指定的情绪（如 生气/委屈/忧伤/冷笑），否则按台词语义与剧集推进阶段自动感知
@@ -988,7 +988,7 @@ def save_project_artifacts(out_dir, shots, actual_total, want_total, lines="",
         "engine": "tunjing-baodian",
         "execution_board": sb_path.name,
         "blocking_input_hashes": {**sources, sb_path.name: file_hash(sb_path)},
-        "workflow_template": "references/workflows/tunjing_v4_master_api.json",
+        "workflow_template": "references/workflows/whale_v4_master_api.json",
         "project": os.path.basename(os.path.abspath(out_dir)),
         "aspect": normalize_aspect(aspect),
         "width": res["width"],
@@ -1102,7 +1102,7 @@ def main():
         return
 
     chain = [x.strip() for x in args.chain.split(",") if x.strip()]
-    from tunjing_local_recipe import resolve
+    from whale_local_recipe import resolve
     try:
         recipes = resolve(chain, poses, args.out_dir)
     except (ValueError, OSError) as exc:
@@ -1110,7 +1110,7 @@ def main():
     if not chain:
         ap.error("Empty pose chain")
     normalize_aspect(args.aspect)
-    from tunjing_pose_choice import CARD, PLAN, reviewed_plan, file_hash
+    from whale_pose_choice import CARD, PLAN, reviewed_plan, file_hash
     out = Path(args.out_dir) if args.out_dir else None
     review = None
     decisions = {}

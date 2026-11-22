@@ -12,7 +12,7 @@ import tempfile
 import unicodedata
 
 sys.dont_write_bytecode = True
-from tunjing_prose import HEADING, dialogue_on
+from whale_prose import HEADING, dialogue_on
 
 SCHEMA = 'tunjing-post-v1'
 PLAN = '后期单.json'
@@ -281,7 +281,7 @@ def confirmed_music(root, items, media):
     if media.audio_tracks > 1:
         raise ValueError('配乐只支持无原声或一条原声；不自动丢弃多音轨')
     try:
-        from tunjing_post_music import prepare_music
+        from whale_post_music import prepare_music
     except ImportError as exc:
         raise ValueError('缺少本机配乐确认模块，不能跳过 music 条目') from exc
     return prepare_music(root, items, media.duration_ms, require_confirmed=True)
@@ -290,7 +290,7 @@ def confirmed_music(root, items, media):
 def render(source, out, order, media, cues):
     if cues:
         try:
-            from tunjing_post_music import mix_music
+            from whale_post_music import mix_music
         except ImportError as exc:
             raise ValueError('缺少本机 mix_music，无法混音') from exc
     with tempfile.TemporaryDirectory(prefix='.tunjing-post-', dir=out.parent) as tmp:

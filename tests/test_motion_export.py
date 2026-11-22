@@ -16,7 +16,7 @@ class MotionExport(unittest.TestCase):
             shots = []
             for actor in (None, 'S1', 'S2'):
                 out = Path(tmp) / str(actor)
-                cmd = [sys.executable, 'scripts/tunjing_scene.py', '--chain', 'missionary', '--total', '8', '--lines', '1:S1:等等。', '--out-dir', str(out)]
+                cmd = [sys.executable, 'scripts/whale_scene.py', '--chain', 'missionary', '--total', '8', '--lines', '1:S1:等等。', '--out-dir', str(out)]
                 if actor:
                     cmd += ['--pace-overrides', json.dumps([dict(shot=1, actor=actor, pace=['fast', 'slow', 'steady'])])]
                 subprocess.run(cmd, cwd=ROOT, env=dict(os.environ, PYTHONUTF8='1'), capture_output=True, check=True)

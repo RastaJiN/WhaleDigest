@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-吞鲸宝典 v4.0 · 全剧集导演主动诊断与升维顾问引擎 (Tunjing v4.0 Proactive Director Advisor)
+吞鲸宝典 v4.0 · 全剧集导演主动诊断与升维顾问引擎 (WhaleDigest v4.0 Proactive Director Advisor)
 
 核心职责（专治“读了旧剧本就照本宣科、不主动提修改完善建议”的痛点）：
 当接手任何既有项目（如《交换游戏》EP01）或初稿剧本/分镜时，主动从五大维度进行导演级视听诊断，
@@ -28,11 +28,11 @@ import argparse
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, BASE_DIR)
 
-from tunjing_core import (
+from whale_core import (
     load_poses, STAGING_IDS, TEASE_IDS, DRAMATIC_BODY_IDS,
     EMOTION_MUSCLE_CUES, resolve_emotion_key, check_dialogue_human_quality, parse_audio_fx_mode
 )
-from tunjing_scene import normalize_aspect
+from whale_scene import normalize_aspect
 
 
 def diagnose_project(project_dir):
@@ -45,8 +45,8 @@ def diagnose_project(project_dir):
     from pathlib import Path
     script_txt = Path(script_file).read_text(encoding="utf-8-sig") if os.path.isfile(script_file) else ""
     sb_txt = Path(sb_file).read_text(encoding="utf-8-sig") if os.path.isfile(sb_file) else ""
-    from tunjing_task_source import load_task_source
-    if os.path.exists(os.path.join(project_dir, ".tunjing_project.json")) or os.path.exists(bj_file):
+    from whale_task_source import load_task_source
+    if os.path.exists(os.path.join(project_dir, ".whale_project.json")) or os.path.exists(bj_file):
         _, batch_data, _ = load_task_source(project_dir)
     else:
         batch_data = {}
@@ -147,7 +147,7 @@ def diagnose_project(project_dir):
             suggestions.append({
                 "dimension": "【维度 5 · 固定三脚架机位占比过高（画面死气沉沉）】",
                 "issue": f"当前 {len(shots)} 镜中有 {static_cnt} 镜为 static 死机位（占比 {static_cnt/len(shots)*100:.0f}%）。",
-                "action": "建议重新通过吞鲸 4.0 `tunjing_scene.py` Auto-DP 引擎编译，自动将死机位替换为 `push_tension`(慢推)、`tilt_up_desire`(垂直上摇)、`ots_depth`(深景深过肩)、`handheld_breath`(呼吸感手持)。"
+                "action": "建议重新通过吞鲸 4.0 `whale_scene.py` Auto-DP 引擎编译，自动将死机位替换为 `push_tension`(慢推)、`tilt_up_desire`(垂直上摇)、`ots_depth`(深景深过肩)、`handheld_breath`(呼吸感手持)。"
             })
 
     # 生成推荐的 4.0 升维完整调度链
@@ -199,7 +199,7 @@ def print_diagnosis(rep):
 
     print("-" * 80)
     print("🚀 【鲸鲸一键升维重排推荐命令】（可直接复制执行，补齐文戏肢体、挑逗、正反打与 Auto-DP 运镜）：")
-    print(f"python scripts/tunjing_scene.py --chain '{rep['recommended_v4_chain']}' --total 180 --aspect {rep['aspect']} --out-dir '{rep['project']}'")
+    print(f"python scripts/whale_scene.py --chain '{rep['recommended_v4_chain']}' --total 180 --aspect {rep['aspect']} --out-dir '{rep['project']}'")
     print("=" * 80)
 
 

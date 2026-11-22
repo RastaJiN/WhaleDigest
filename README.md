@@ -1,4 +1,4 @@
-# 🐳 吞鲸宝典 (Tunjing Baodian)
+# 🐳 吞鲸宝典 (WhaleDigest Baodian)
 
 > 吞鲸工作室 · 精品漫剧极速生产引擎
 > 绑定吞鲸宝典内置引擎真源，1:1 复刻其姿势矩阵与提示词装配逻辑。
@@ -29,7 +29,7 @@ git clone https://github.com/RastaJiN/tunjing-baodian.git ~/.hermes/skills/tunji
 ### 1. 整段床戏自动拆镜（主轴）
 
 ```bash
-python scripts/tunjing_scene.py --chain "kiss_fondle,bj,fingering,cunnilingus,missionary,cowgirl,doggy,cum_butt" --total 120 --scene "办公室"
+python scripts/whale_scene.py --chain "kiss_fondle,bj,fingering,cunnilingus,missionary,cowgirl,doggy,cum_butt" --total 120 --scene "办公室"
 ```
 
 输出 **29 镜分镜表 + 每镜完整送模提示词**：
@@ -43,13 +43,13 @@ python scripts/tunjing_scene.py --chain "kiss_fondle,bj,fingering,cunnilingus,mi
 ### 2. 单镜精修
 
 ```bash
-python scripts/tunjing_storyboard.py --shot "bj,cowgirl,doggy,cum_butt" --dur 12 --scene "办公室"
+python scripts/whale_storyboard.py --shot "bj,cowgirl,doggy,cum_butt" --dur 12 --scene "办公室"
 ```
 
 ### 3. 六大步进门禁
 
 ```bash
-python scripts/tunjing_gatekeeper.py <项目目录> [1-6]
+python scripts/whale_gatekeeper.py <项目目录> [1-6]
 ```
 
 Gate 3 检查逐镜景别、机位和时长，并按实际内容类型核验必要的镜头。纯对白内容合法；时长依照对白预算与单镜上限判断。
@@ -64,27 +64,27 @@ python scripts/export_jianying_draft.py <项目目录> --name "我的漫剧_EP01
 - 自动提取台词生成卡点字幕轨（黄色描边、底部居中）；
 - 打开剪映客户端即可直接双击预览、加转场特效或导出成片！
 
-**仅做本地后期，不开 H3 队列**：有现成母带时，可选用 `scripts/tunjing_post.py check` / `render` 分轨处理字幕、普通字卡和已有配乐；不用安装 Node 或剪映。复杂面板不走此路径。输入、毫秒时间轴与 CLI 示例见[后期交付](references/post-delivery.md)和[逐曲确认](references/post-music.md)。该入口不覆盖原片，也不负责去除已烫进原片的字。
+**仅做本地后期，不开 H3 队列**：有现成母带时，可选用 `scripts/whale_post.py check` / `render` 分轨处理字幕、普通字卡和已有配乐；不用安装 Node 或剪映。复杂面板不走此路径。输入、毫秒时间轴与 CLI 示例见[后期交付](references/post-delivery.md)和[逐曲确认](references/post-music.md)。该入口不覆盖原片，也不负责去除已烫进原片的字。
 
 ### 5. 专治大模型（DeepSeek/GPT）自作主张的偏离度审计对比
 
 ```bash
-python scripts/tunjing_diff_audit.py <项目目录>
+python scripts/whale_diff_audit.py <项目目录>
 ```
 针对大模型在分镜与提示词阶段可能产生的“夹带私货、自编动作、篡改结构、前戏误加插入、开场全景露鸟”等顽疾，一键输出客观的标准化对比数据报告：
 - **物理帧长合规率 (5+17N)**
 - **六段式结构契约对齐度 (100%)**
-- **真源动作纯度 (命中 tunjing_poses_matrix.json)**
+- **真源动作纯度 (命中 whale_poses_matrix.json)**
 - **前戏/口交/插入逻辑冲突检测**
 - **开场脱衣全景露鸟风险一票否决**
 
 ---
 
-## 真源数据（全部 1:1 提取自吞鲸引擎 `tunjing_poses_matrix.json`）
+## 真源数据（全部 1:1 提取自吞鲸引擎 `whale_poses_matrix.json`）
 
 | 文件 | 内容 | 条数 |
 |---|---|---|
-| `references/tunjing_poses_matrix.json` | 单体姿势（framing + beats 中英原文） | 55 套 |
+| `references/whale_poses_matrix.json` | 单体姿势（framing + beats 中英原文） | 55 套 |
 | `references/oneshot_transitions.json` | 一键组合模板（仅作转场桥参考） | 9 套 |
 | `references/transition_recipes.json` | 物理换位配方 | 40 条 |
 | `references/kinetic-positions.md` | 上表的人类可读视图（由 JSON 生成） | — |
@@ -116,10 +116,10 @@ python scripts/dryrun_test.py
 
 | 脚本 | 作用 |
 |---|---|
-| `tunjing_scene.py` | 整段拆镜 + 逐镜出完整提示词（主轴） |
-| `tunjing_storyboard.py` | 单镜精修 / 一键组合复现 |
-| `tunjing_core.py` | 提示词装配共享核心（唯一实现） |
-| `tunjing_gatekeeper.py` | 六大步进门禁状态机 |
-| `tunjing_compiler.py` | 提示词体检工具 |
-| `tunjing_resolver.py` | 单个动作快速查询 |
+| `whale_scene.py` | 整段拆镜 + 逐镜出完整提示词（主轴） |
+| `whale_storyboard.py` | 单镜精修 / 一键组合复现 |
+| `whale_core.py` | 提示词装配共享核心（唯一实现） |
+| `whale_gatekeeper.py` | 六大步进门禁状态机 |
+| `whale_compiler.py` | 提示词体检工具 |
+| `whale_resolver.py` | 单个动作快速查询 |
 | `dryrun_test.py` | 目标机最小闭环自检 |

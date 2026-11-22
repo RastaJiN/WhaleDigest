@@ -1,7 +1,7 @@
 import tempfile, subprocess, sys, json, os, unittest
 from pathlib import Path
 
-PIPE = Path(__file__).resolve().parents[1] / 'scripts/tunjing_pipeline.py'
+PIPE = Path(__file__).resolve().parents[1] / 'scripts/whale_pipeline.py'
 
 class ChoiceTest(unittest.TestCase):
     def test_lifecycle(self):

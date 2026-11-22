@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-吞鲸宝典 v3.0 · 剪映专业版草稿自动生成与工程落盘引擎 (Tunjing Jianying Draft Exporter v3.0)
+吞鲸宝典 v3.0 · 剪映专业版草稿自动生成与工程落盘引擎 (WhaleDigest Jianying Draft Exporter v3.0)
 
 功能：
 1. 自动定位本机剪映草稿目录（默认 C:\\Users\\<User>\\AppData\\Local\\JianyingPro\\User Data\\Projects\\com.lveditor.draft）
@@ -18,8 +18,8 @@ import re
 import shutil
 import argparse
 import subprocess
-from tunjing_task_source import load_task_source, execution_board_path
-from tunjing_media import find_clip, probe_media
+from whale_task_source import load_task_source, execution_board_path
+from whale_media import find_clip, probe_media
 
 
 def _import_draft():

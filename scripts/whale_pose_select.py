@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-吞鲸宝典 · 场景自动识别体位引擎 (Tunjing Scene-to-Pose Selector)
+吞鲸宝典 · 场景自动识别体位引擎 (WhaleDigest Scene-to-Pose Selector)
 
 解决「肉戏体位被写死默认几招、不从场景出发」的根本症结。
 
@@ -19,7 +19,7 @@ import re
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 REF = os.path.join(BASE, "..", "references")
-POSE_DB = os.path.join(REF, "tunjing_poses_matrix.json")
+POSE_DB = os.path.join(REF, "whale_poses_matrix.json")
 
 
 def load_poses():
@@ -100,14 +100,14 @@ def select_poses_from_script(script_text, scene_text=""):
     found_source = []
 
     # 1) 剧本明确写了体位词
-    import tunjing_prose as prose
+    import whale_prose as prose
     visible = []
     for row in prose.source_rows(script_text or ''):
         row['turns']=prose.dialogue_on(row['raw'])
         visible.append(prose.action_body(row)[1])
     keywords=re.compile('|'.join(map(re.escape,sorted(POSE_KEYWORD_MAP,key=len,reverse=True))))
     txt = '\n'.join(prose.pose_text(line,keywords) for line in visible)
-    from tunjing_solo import PROP_ACTIONS, PROP_IDS
+    from whale_solo import PROP_ACTIONS, PROP_IDS
     words = {**PROP_ACTIONS, **{pid: pid for pid in PROP_IDS}}
     pattern = '|'.join(map(re.escape, sorted(words, key=len, reverse=True)))
     for m in re.finditer(pattern, txt):
@@ -168,7 +168,7 @@ def select_poses_with_staging(script_text, scene_text=""):
     """
     完整链路：文戏开场原语 + 场景自动识别体位 + 收尾
     """
-    from tunjing_dialogue import resolve_intent
+    from whale_dialogue import resolve_intent
 
     sex_ids, source = select_poses_from_script(script_text, scene_text)
 
@@ -181,7 +181,7 @@ def select_poses_with_staging(script_text, scene_text=""):
         "tease": ["env_establish", "blocking_2s"],
     }.get(intent, ["env_establish", "srs_male", "srs_female"])
 
-    from tunjing_solo import PROP_IDS
+    from whale_solo import PROP_IDS
     if sex_ids and set(sex_ids) <= PROP_IDS:
         staging = ["env_establish"]
     full = staging + sex_ids + (["outro_solo"] if sex_ids else [])

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-吞鲸宝典 · 端到端自动流水线主控编排器 (Tunjing One-Shot Auto-Pipeline)
+吞鲸宝典 · 端到端自动流水线主控编排器 (WhaleDigest One-Shot Auto-Pipeline)
 
 解决「宝典是工具箱、不是流水线，模型加载后不知道从哪跑起」的根本症结。
 
@@ -10,7 +10,7 @@
 全程不询问用户，只有无法自动推断的关键参数（题材/人选/资产）才停下。
 
 模型加载宝典后，唯一需要做的是：
-    python scripts/tunjing_pipeline.py <剧本.md路径> [--aspect 9:16|16:9] [--total 240] [--scene 酒店客房]
+    python scripts/whale_pipeline.py <剧本.md路径> [--aspect 9:16|16:9] [--total 240] [--scene 酒店客房]
 
 其余全部由本编排器自动完成，用户只验收最终产物。
 """
@@ -90,8 +90,8 @@ def main():
             print("     C. 先诊断升维，看能不能更精彩再跑")
         elif kind == "fix":
             print("   [选择题] 这是要擦屁股的材料，怎么处理？")
-            print("     A. 先诊断哪里烂（tunjing_advisor.py），列出问题再决定改法")
-            print("     B. 直接按冲突发动机改编（tunjing_drama.py 先定冲突原型）")
+            print("     A. 先诊断哪里烂（whale_advisor.py），列出问题再决定改法")
+            print("     B. 直接按冲突发动机改编（whale_drama.py 先定冲突原型）")
             print("     C. 我先说明要什么样的剧，你帮我重写剧本")
         else:
             print("   [选择题] 从零创作，请先回答三个方向：")
@@ -99,7 +99,7 @@ def main():
             print("     B. 冲突原型选哪个？（夺物/揭密/逼选/摊牌/破防）")
             print("     C. 画幅横屏还是竖屏？")
         print()
-        print("   （监制拍板后，鲸鲸按所选方向继续。带剧本重跑：python tunjing_pipeline.py '<剧本路径>'）")
+        print("   （监制拍板后，鲸鲸按所选方向继续。带剧本重跑：python whale_pipeline.py '<剧本路径>'）")
         return
 
     # ── 确定项目目录 ──
@@ -127,9 +127,9 @@ def main():
     with open(script_file, "r", encoding="utf-8") as f:
         script_txt = f.read()
 
-    from tunjing_core import load_poses, STAGING_IDS
-    from tunjing_dialogue import DIALOGUE_SHOT_RECIPES, resolve_intent
-    from tunjing_pose_choice import choose, reviewed_plan, authored_text
+    from whale_core import load_poses, STAGING_IDS
+    from whale_dialogue import DIALOGUE_SHOT_RECIPES, resolve_intent
+    from whale_pose_choice import choose, reviewed_plan, authored_text
     poses = load_poses()
     try:
         choose(script_txt, script_file, poses, args.scene, args.scene_id)
@@ -149,9 +149,9 @@ def main():
     chain_str = ",".join(pose_ids)
     print(f"  完整调度链: {chain_str}")
 
-    # ── 3. 拆镜 + 装提示词（调用 tunjing_scene.py） ──
-    step_banner(3, "拆镜 + 六段式提示词装配（tunjing_scene.py）")
-    cmd = [sys.executable, os.path.join(BASE_DIR, "tunjing_scene.py"), "--chain", chain_str,
+    # ── 3. 拆镜 + 装提示词（调用 whale_scene.py） ──
+    step_banner(3, "拆镜 + 六段式提示词装配（whale_scene.py）")
+    cmd = [sys.executable, os.path.join(BASE_DIR, "whale_scene.py"), "--chain", chain_str,
            "--total", str(args.total), "--scene", args.scene, "--aspect", args.aspect, "--out-dir", project_dir, "--script-file", script_file]
     cmd.extend(["--card-offset", "0"])
     if args.scene_id:
@@ -167,10 +167,10 @@ def main():
         sys.exit(1)
 
     # ── 4. 六步门禁 ──
-    step_banner(4, "六步门禁逐关核验（tunjing_gatekeeper.py）")
+    step_banner(4, "六步门禁逐关核验（whale_gatekeeper.py）")
     gate_failed = False
     for g in range(1, 7):
-        out, rc = run([sys.executable, os.path.join(BASE_DIR, "tunjing_gatekeeper.py"), project_dir, str(g)])
+        out, rc = run([sys.executable, os.path.join(BASE_DIR, "whale_gatekeeper.py"), project_dir, str(g)])
         tail = out.strip().splitlines()
         # Gate 6 是渲染放行（无 "门禁通过" 文案，直接看 returncode）
         is_pass = (rc == 0) and ("门禁通过" in out or "PASS" in out or g == 6)
@@ -208,7 +208,7 @@ def main():
     if not args.dry:
         step_banner(6, "渲染提示")
         print("【提醒】若需正式渲染，请监制审阅签字单后运行：")
-        print(f'  python "{BASE_DIR}/tunjing_runner.py" "{project_dir}" --confirm-token <签字单上的授权码>')
+        print(f'  python "{BASE_DIR}/whale_runner.py" "{project_dir}" --confirm-token <签字单上的授权码>')
     else:
         print("[--dry] 已省略渲染步骤，只查分镜+提示词落盘。")
 

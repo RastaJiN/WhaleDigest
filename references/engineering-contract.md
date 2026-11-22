@@ -2,7 +2,7 @@
 
 本记录描述工程接口与验收边界。文本通过、离线负载通过、实际渲染成功和画面质量合格是四种不同结果，不能互相代替。镜头内容与生成质量需要单独验收。
 
-项目用 `.tunjing_project.json` 的 `active_batch` 指定唯一任务文件。路径必须相对于项目目录；有清单但路径无效时直接失败。没有清单的旧项目兼容读取 `批量任务.json`。门禁、终审、完整性签名、导出器和主运行器共用同一解析器。
+项目用 `.whale_project.json` 的 `active_batch` 指定唯一任务文件。路径必须相对于项目目录；有清单但路径无效时直接失败。没有清单的旧项目兼容读取 `批量任务.json`。门禁、终审、完整性签名、导出器和主运行器共用同一解析器。
 
 Gate 4 按实际任务中的每一个 `prompt` 检查。Markdown 文档拆块检查与任务原文检查使用不同入口；代码围栏不能隐藏任务正文中的错误。六字段格式为 `subject_definitions`、`summary`、`retention_analysis`、`detailed_description`、`overall_soundscape`、`non_diegetic_music`，并要求画面段有独立 `Camera:` 行。真实台词必须在独立 `SPEECH:` 行中有同一行的说话锚点和闭合、非空的语言标签。结构不能由对白中的同名字符串补齐；未闭合的 Markdown 代码块必须报告错误。
 

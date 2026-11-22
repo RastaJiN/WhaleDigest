@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-吞鲸宝典 · 剧本生成器 (Tunjing Script Writer — 写剧本/改剧本的最后一公里)
+吞鲸宝典 · 剧本生成器 (WhaleDigest Script Writer — 写剧本/改剧本的最后一公里)
 
-把「冲突发动机（tunjing_drama.py）」的四段骨架，展开成符合门禁的、
+把「冲突发动机（whale_drama.py）」的四段骨架，展开成符合门禁的、
 带台词、带体位推进的完整可拍剧本。同时支持"擦屁股"——把散装梗概/小说改写合格。
 
 半自动：给 题材 + 冲突原型 + 画幅，按「目标-反对-转向-退出」生成三幕剧本；
@@ -20,15 +20,15 @@ import argparse
 BASE = os.path.dirname(os.path.abspath(__file__))
 sys_path_added = False
 try:
-    from tunjing_drama import CONFLICT_ARCHETYPES, build_conflict_beats
-    from tunjing_core import load_poses, STAGING_IDS
-    from tunjing_pose_select import select_poses_from_script
+    from whale_drama import CONFLICT_ARCHETYPES, build_conflict_beats
+    from whale_core import load_poses, STAGING_IDS
+    from whale_pose_select import select_poses_from_script
 except ImportError:
     import sys
     sys.path.insert(0, BASE)
-    from tunjing_drama import CONFLICT_ARCHETYPES, build_conflict_beats
-    from tunjing_core import load_poses, STAGING_IDS
-    from tunjing_pose_select import select_poses_from_script
+    from whale_drama import CONFLICT_ARCHETYPES, build_conflict_beats
+    from whale_core import load_poses, STAGING_IDS
+    from whale_pose_select import select_poses_from_script
 
 
 # ── 题材 → 默认冲突原型 + 默认落点（正经剧落情绪，成人剧落肉戏）──

@@ -10,8 +10,8 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
-import tunjing_pose_choice as choice
-from tunjing_pose_select import load_poses
+import whale_pose_choice as choice
+from whale_pose_select import load_poses
 
 
 class PoseConfirmationContract(unittest.TestCase):
@@ -103,7 +103,7 @@ class PoseConfirmationContract(unittest.TestCase):
             self.assertEqual(choice.choose(text, source, load_poses(), "chair"), result)
 
             cmd = [
-                sys.executable, str(SCRIPTS / "tunjing_scene.py"),
+                sys.executable, str(SCRIPTS / "whale_scene.py"),
                 "--chain", ",".join(result),
                 "--card-offset", "0", "--total", "10", "--scene", "chair",
                 "--script-file", str(source), "--out-dir", str(folder),
@@ -121,10 +121,10 @@ class PoseConfirmationContract(unittest.TestCase):
             self.assertEqual([[s['选择'] for s in r['action_steps']] for r in action_rows],
                              [['lap_sit','cowgirl_upright'], ['pillow_hump']])
             self.assertEqual([r['action_steps'] for r in action_rows], [r['action_steps'] for r in frozen['shots']])
-            from tunjing_compiler import parse_prompt_sections, lint_tunjing_document
-            from tunjing_task_source import load_task_source, validate_batch_metadata
+            from whale_compiler import parse_prompt_sections, lint_whale_document
+            from whale_task_source import load_task_source, validate_batch_metadata
             validate_batch_metadata(load_task_source(folder)[1]); md=(folder/'视频提示词.md').read_text('utf8')
-            self.assertEqual(lint_tunjing_document(md)[0], [])
+            self.assertEqual(lint_whale_document(md)[0], [])
             for row in action_rows: self.assertIn(row['prompt'], md)
             visual=[parse_prompt_sections(r['prompt'])[0]['detailed_description'] for r in action_rows]
             for cue in ('Open directly','lap_sit','cowgirl_upright','without a cut','initiator: S1','initiator: S2',
@@ -205,12 +205,12 @@ class PoseConfirmationContract(unittest.TestCase):
                 self.assertTrue(any(role in e and 'contradict' in e for e in card['errors']), card['errors'])
 
     def test_one_take_uses_first_camera_and_all_visible_cast_not_just_endpoint(self):
-        from tunjing_scene import build_scene, save_project_artifacts
+        from whale_scene import build_scene, save_project_artifacts
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp); text='镜1：lap_sit，然后 solo_action=pillow_hump。'
             _,source,state=self._choose(root,text); card,=json.loads(state.read_text('utf8'))
             card['steps'][1]['transition']='one_take'; state.write_text(json.dumps([card]),encoding='utf8')
-            choice.choose(text,source,load_poses(),'bedroom'); cmd=[sys.executable,'-X','utf8',str(SCRIPTS/'tunjing_scene.py'),'--out-dir',str(root),'--scene','bedroom','--chain','lap_sit,pillow_hump']
+            choice.choose(text,source,load_poses(),'bedroom'); cmd=[sys.executable,'-X','utf8',str(SCRIPTS/'whale_scene.py'),'--out-dir',str(root),'--scene','bedroom','--chain','lap_sit,pillow_hump']
             run=subprocess.run(cmd,capture_output=True); self.assertEqual(run.returncode,0,run.stderr)
             row,=json.loads((root/'批量任务.json').read_text('utf8'))['batch_shots']
             self.assertEqual(row['camera_motion'],'arc_subtle'); self.assertNotEqual(row['ref_images'][1],row['ref_images'][2]);self.assertIn('<Subject 2>',row['prompt'])
@@ -222,13 +222,13 @@ class PoseConfirmationContract(unittest.TestCase):
             with self.assertRaises(ValueError): choice.reviewed_plan(root,source,'bedroom')
 
     def test_speech_overflow_does_not_replay_a_confirmed_exit(self):
-        from tunjing_scene import prepare_dialogue_shots
+        from whale_scene import prepare_dialogue_shots
         shot = dict(pose='lap_sit', size='mcu', action_steps=[{'scene_end':'exit'}])
         with self.assertRaisesRegex(ValueError,'分镜|reviewed'):
             prepare_dialogue_shots([shot], '1:S1:'+'来。'*90, 12)
 
     def test_single_reviewed_action_needs_no_extra_pose_for_gate_2(self):
-        from tunjing_gatekeeper import audit_step_2
+        from whale_gatekeeper import audit_step_2
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp); text='## 第一幕\n## 第二幕\n镜1：direct_entry；foreplay=none；main_pose=lap_sit。'
             self._choose(root,text)
@@ -243,14 +243,14 @@ class PoseConfirmationContract(unittest.TestCase):
             card,=json.loads((root/choice.CARD).read_text('utf8')); self.assertEqual(card['镜头'],'镜2')
 
     def test_foreplay_and_solo_repeat_in_review_order_not_role_order(self):
-        from tunjing_compiler import parse_prompt_sections
+        from whale_compiler import parse_prompt_sections
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp); text='镜1：nonlinear；foreplay=kiss_fondle；solo_action=toy_tease；foreplay=kiss_pin；solo_action=pillow_hump；main_pose=lap_sit。'
             _,source,state=self._choose(root,text)
             card,=json.loads(state.read_text('utf8')); card.update(transitions_order=[3,2,4,1,0],scene_end='hold')
             state.write_text(json.dumps([card]),encoding='utf8'); chain=choice.choose(text,source,load_poses(),'bedroom')
             expected=['pillow_hump','kiss_pin','lap_sit','toy_tease','kiss_fondle']; self.assertEqual(chain,expected)
-            run=subprocess.run([sys.executable,'-X','utf8',str(SCRIPTS/'tunjing_scene.py'),'--chain',','.join(chain),'--scene','bedroom','--out-dir',str(root)],capture_output=True)
+            run=subprocess.run([sys.executable,'-X','utf8',str(SCRIPTS/'whale_scene.py'),'--chain',','.join(chain),'--scene','bedroom','--out-dir',str(root)],capture_output=True)
             self.assertEqual(run.returncode,0,run.stderr)
             batch=json.loads((root/'批量任务.json').read_text('utf8')); self.assertEqual([s['pose'] for s in batch['batch_shots']],expected)
             c,=batch['storyboard_cards']; self.assertEqual(c['foreplay'],['kiss_pin','kiss_fondle']); self.assertEqual(c['solo_action'],['pillow_hump','toy_tease']); self.assertEqual(c['transitions_order'],[3,2,4,1,0]); self.assertEqual(c['foreplay_mode'],'in_shot')
@@ -259,7 +259,7 @@ class PoseConfirmationContract(unittest.TestCase):
 
     def test_cli_mixed_source_keeps_speaker_shot_and_visible_action_order(self):
         from dryrun_test import png_bytes
-        from tunjing_task_source import load_task_source
+        from whale_task_source import load_task_source
         with tempfile.TemporaryDirectory() as tmp:
             folder=Path(tmp); source=folder/'剧本.md'; assets=folder/'00_资产'; assets.mkdir()
             for name in ('female_dressed.png','male_dressed.png','female_nude.png','male_nude.png','scene_main.png'):
@@ -270,8 +270,8 @@ class PoseConfirmationContract(unittest.TestCase):
             def run(script,*args):
                 return subprocess.run([sys.executable,'-X','utf8',str(SCRIPTS/script),*map(str,args)],
                                       capture_output=True,encoding='utf8',env=dict(os.environ,PYTHONUTF8='1'))
-            pipe=('tunjing_pipeline.py',folder,'--dry','--total','18')
-            wrong=('tunjing_scene.py','--out-dir',folder,'--chain','undress,cowgirl')
+            pipe=('whale_pipeline.py',folder,'--dry','--total','18')
+            wrong=('whale_scene.py','--out-dir',folder,'--chain','undress,cowgirl')
             self.assertNotEqual(run(*wrong).returncode,0)
             self.assertEqual(run(*pipe).returncode,3)
             for name in ('批量任务.json','已决分镜.json','视频提示词.md'): self.assertFalse((folder/name).exists())
@@ -296,7 +296,7 @@ class PoseConfirmationContract(unittest.TestCase):
             self.assertNotEqual(run('export_comfy_payload.py',folder,'--offline').returncode,0)
 
     def test_gate_distinguishes_shot_directions_from_actual_dialogue(self):
-        from tunjing_gatekeeper import audit_step_2
+        from whale_gatekeeper import audit_step_2
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp); source=root/'剧本.md'
             text='## 第一幕\n镜1：env_establish。\n## 第二幕\n镜2：lap_sit。\n'

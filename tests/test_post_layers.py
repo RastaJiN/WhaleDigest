@@ -8,7 +8,7 @@ import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
-CLI = ROOT / 'scripts' / 'tunjing_post.py'
+CLI = ROOT / 'scripts' / 'whale_post.py'
 SCHEMA = 'tunjing-post-v1'
 
 
@@ -210,7 +210,7 @@ class PostLayers(unittest.TestCase):
         import re
         item = self.music_item()
         self.order(music=[item], cards=[cue('已到站', 1000, 1600, kind='plain')])
-        mcli = CLI.with_name('tunjing_post_music.py')
+        mcli = CLI.with_name('whale_post_music.py')
         preview = self.media_cmd(sys.executable, '-B', str(mcli), 'preview', str(self.project)).decode('utf8')
         digest = re.search(r'SHA256=([0-9a-f]{64})', preview).group(1)
         # Only a synthetic fixture is confirmed; never adopt a user's music.
@@ -312,8 +312,8 @@ class PostLayers(unittest.TestCase):
         from unittest.mock import patch
         sys.path.insert(0, str(CLI.parent))
         self.addCleanup(sys.path.remove, str(CLI.parent))
-        import tunjing_post as post
-        import tunjing_post_music as music
+        import whale_post as post
+        import whale_post_music as music
         self.order(music=[self.music_item()], cards=[cue('夜', kind='plain')])
         target = self.project / '不得交付.mp4'
         before = self.snapshot()

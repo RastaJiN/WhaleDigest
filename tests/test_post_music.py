@@ -16,8 +16,8 @@ from pathlib import Path
 
 SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
 sys.path.insert(0, str(SCRIPTS))
-CLI = SCRIPTS / "tunjing_post_music.py"
-import tunjing_post_music as music
+CLI = SCRIPTS / "whale_post_music.py"
+import whale_post_music as music
 
 
 def tone(path, hz, ms=1200, rate=16000):
@@ -166,7 +166,7 @@ class LocalMusic(unittest.TestCase):
 
     def test_confirm_only_named_item_preserve_other_valid_tickets_prune_stale_ones(self):
         self.add_second()
-        h3 = self.root / ".tunjing_status.json"
+        h3 = self.root / ".whale_status.json"
         before = self.fingerprints()
         h3.write_text(json.dumps(before), encoding="utf-8")  # not a music authority
         self.confirm("MUSIC-01", before["MUSIC-01"])
@@ -305,7 +305,7 @@ class LocalMusic(unittest.TestCase):
         self.assertEqual(picture_packets(src), picture_packets(out))
 
     def test_preview_is_read_only_and_shows_reviewed_spec_and_full_fingerprint(self):
-        h3 = self.root / ".tunjing_status.json"
+        h3 = self.root / ".whale_status.json"
         h3.write_bytes(b"H3 unrelated bytes")
         before = {p: p.read_bytes() for p in self.root.rglob("*") if p.is_file()}
         text = self.preview()

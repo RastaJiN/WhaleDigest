@@ -35,13 +35,13 @@ def check_comfy_health():
         return False
 
 
-from tunjing_task_source import load_task_source, require_source_audit, source_record, validate_batch_metadata
-from tunjing_compiler import lint_task_prompt
+from whale_task_source import load_task_source, require_source_audit, source_record, validate_batch_metadata
+from whale_compiler import lint_task_prompt
 
 def verify_project_gates(project_dir):
-    status_file = os.path.join(project_dir, ".tunjing_status.json")
+    status_file = os.path.join(project_dir, ".whale_status.json")
     if not os.path.exists(status_file):
-        return False, "未找到 .tunjing_status.json 状态机文件！请先运行 tunjing_gatekeeper.py 通过前 5 步门禁。"
+        return False, "未找到 .whale_status.json 状态机文件！请先运行 whale_gatekeeper.py 通过前 5 步门禁。"
     with open(status_file, "r", encoding="utf-8") as f:
         st = json.load(f)
     try:

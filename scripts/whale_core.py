@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-吞鲸宝典 v4.0 · 全剧集导演调度与提示词装配共享核心 (Tunjing Assembly Core v4.0)
+吞鲸宝典 v4.0 · 全剧集导演调度与提示词装配共享核心 (WhaleDigest Assembly Core v4.0)
 
 核心特性：
 1. R1~R12 全肯定无否定式语法（Positive-Only Grammar）：
@@ -39,21 +39,21 @@ def _hmac_secret():
 
 def sign_project(project_dir):
     """Bind the integrity token to the selected task, status and validator code."""
-    from tunjing_task_source import load_task_source
+    from whale_task_source import load_task_source
 
     batch_file, _batch, task_sha256 = load_task_source(project_dir)
     batch_bytes = batch_file.read_bytes()
     if _hashlib.sha256(batch_bytes).hexdigest() != task_sha256:
         raise ValueError("Task source changed while calculating the integrity token")
-    status_file = os.path.join(project_dir, ".tunjing_status.json")
+    status_file = os.path.join(project_dir, ".whale_status.json")
     payload = (str(batch_file).encode("utf-8") + b"\0" +
                task_sha256.encode("ascii") + b"\0" + batch_bytes)
     if os.path.exists(status_file):
         with open(status_file, "rb") as fh:
             payload += fh.read()
-    for fn in ("tunjing_gatekeeper.py", "tunjing_diff_audit.py", "tunjing_core.py",
-               "tunjing_runner.py", "tunjing_task_source.py", "tunjing_compiler.py",
-               "tunjing_audio_contract.py"):
+    for fn in ("whale_gatekeeper.py", "whale_diff_audit.py", "whale_core.py",
+               "whale_runner.py", "whale_task_source.py", "whale_compiler.py",
+               "whale_audio_contract.py"):
         sp = os.path.join(os.path.dirname(os.path.abspath(__file__)), fn)
         with open(sp, "rb") as fh:
             payload += fn.encode("ascii") + b"\0" + fh.read()
@@ -243,7 +243,7 @@ def check_dialogue_human_quality(line_text, shot_dur=4.0):
 
 def parse_audio_fx_mode(speaker_raw="", line_raw="", voiceover=False):
     """
-    识别台词声学后期处理模式（供 tunjing_mastering.py 在后期合成时自动挂载 FFmpeg 音频滤镜）：
+    识别台词声学后期处理模式（供 whale_mastering.py 在后期合成时自动挂载 FFmpeg 音频滤镜）：
     - `phone`：电话/听筒/对讲机音质（后期施加 300Hz–3400Hz 带通滤波 + 轻压缩）
     - `inner_os`：内心独白/混响心声（后期施加轻空间混响 aecho）
     - `normal`：标准同期干声
@@ -429,7 +429,7 @@ def build_soundscape_en(scene_name, is_staging=False):
 
 
 def load_poses():
-    with open(os.path.join(REF, "tunjing_poses_matrix.json"), encoding="utf-8") as f:
+    with open(os.path.join(REF, "whale_poses_matrix.json"), encoding="utf-8") as f:
         return json.load(f)
 
 
@@ -705,13 +705,13 @@ def build_shot_description(shot, index, total_shots, dur, size_desc, cam_desc,
     is_staging = first_p in STAGING_IDS
 
     is_oral = first_p in ORAL_ONLY or "口交" in p_zh or "深喉" in p_zh
-    from tunjing_solo import PROP_IDS
+    from whale_solo import PROP_IDS
     is_penetration = (first_p not in PROP_IDS and first_p not in FOREPLAY and first_p not in ORAL_ONLY and first_p not in FINISH_IDS
                       and not is_staging and not is_transition)
     is_undress = "undress" in first_p
 
     actor = resolve_speaker(speaker) if lines else None
-    from tunjing_blocking import DIALOGUE, RELATIONS, neutral_action, visible_notes
+    from whale_blocking import DIALOGUE, RELATIONS, neutral_action, visible_notes
     plan = shot.get('blocking_state')
     if female_screen_side not in (None, 'left', 'right'):
         raise ValueError('invalid screen-side decision')
@@ -757,7 +757,7 @@ def build_shot_description(shot, index, total_shots, dur, size_desc, cam_desc,
             comp_lock += RELATIONS[plan['relation']] + '. '
         # The direct low-level API also accepts an explicit storyboard relation; never infer it from a location.
         elif shot.get('blocking'):
-            from tunjing_dialogue import build_blocking_lock
+            from whale_dialogue import build_blocking_lock
             comp_lock += build_blocking_lock(shot['blocking'], '')[1] + '. '
     elif shot.get("size") in ("hip", "macro") and is_penetration and (not lines or effective_vo):
         comp_lock = ("COMPOSITION LOCK: Low-angle pelvic framing cropped tightly from waist to mid-thigh, "

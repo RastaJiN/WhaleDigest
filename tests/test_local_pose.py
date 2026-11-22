@@ -4,13 +4,13 @@ ROOT = Path(__file__).resolve().parents[1]
 RECIPE = {"orientation":"Two standing subjects face each other.", "support":"Both keep their weight on planted feet.", "beats":["One raises a palm.", "The other mirrors the gesture."], "framing":{"size":"wide", "cam":"static_side"}}
 
 def export(project, pid):
-    return subprocess.run([sys.executable, str(ROOT/'scripts/tunjing_scene.py'), '--out-dir', str(project), '--chain',pid,'--total','5','--scene','studio'], capture_output=True, encoding='utf8', env={**os.environ,'PYTHONIOENCODING':'utf8'})
+    return subprocess.run([sys.executable, str(ROOT/'scripts/whale_scene.py'), '--out-dir', str(project), '--chain',pid,'--total','5','--scene','studio'], capture_output=True, encoding='utf8', env={**os.environ,'PYTHONIOENCODING':'utf8'})
 
 class LocalPose(unittest.TestCase):
     def test_resolution(self):
         sys.path.insert(0,str(ROOT/'scripts'))
-        from tunjing_local_recipe import resolve
-        from tunjing_pose_select import select_poses_from_script
+        from whale_local_recipe import resolve
+        from whale_pose_select import select_poses_from_script
         with tempfile.TemporaryDirectory() as d:
             path=Path(d)/'pose_recipes.json'
             path.write_text('{',encoding='utf8')

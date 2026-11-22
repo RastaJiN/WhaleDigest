@@ -12,14 +12,14 @@ import math
 from pathlib import Path, PureWindowsPath
 
 if __package__:
-    from .tunjing_blocking import project_file, verify_inputs
-    from . import tunjing_shot_facts
+    from .whale_blocking import project_file, verify_inputs
+    from . import whale_shot_facts
 else:
-    from tunjing_blocking import project_file, verify_inputs
-    import tunjing_shot_facts
+    from whale_blocking import project_file, verify_inputs
+    import whale_shot_facts
 
 
-MANIFEST_NAME = ".tunjing_project.json"
+MANIFEST_NAME = ".whale_project.json"
 LEGACY_BATCH_NAME = "批量任务.json"
 MAX_PROMPT_BYTES = 8000
 
@@ -140,7 +140,7 @@ def _verify_export(root, batch):
     try:
         verify_inputs(root, batch)
         verify_pose_export(root, batch)
-        tunjing_shot_facts.verify(root, batch)
+        whale_shot_facts.verify(root, batch)
     except (ValueError, OSError) as exc:
         raise TaskSourceError(str(exc)) from exc
 
@@ -179,9 +179,9 @@ def verify_sourced_dialogue(sequence, rows):
 def verify_pose_export(project_dir, batch):
     """Legacy batches need no review files. A reviewed project cannot fall back to one."""
     if __package__:
-        from .tunjing_pose_choice import CARD, PLAN, BOARD, prompt_hash
+        from .whale_pose_choice import CARD, PLAN, BOARD, prompt_hash
     else:
-        from tunjing_pose_choice import CARD, PLAN, BOARD, prompt_hash
+        from whale_pose_choice import CARD, PLAN, BOARD, prompt_hash
     root = Path(project_dir)
     binding = batch.get('pose_input_hashes')
     if binding is None:
@@ -359,9 +359,9 @@ def validate_image_references(refs):
             raise TaskSourceError("Image references must be relative filenames without path traversal")
 
 
-_VALIDATOR_NAMES = ("tunjing_task_source.py", "tunjing_compiler.py", "tunjing_gatekeeper.py",
-                    "tunjing_diff_audit.py", "tunjing_audio_contract.py", "tunjing_core.py", "tunjing_blocking.py",
-                    "tunjing_pose_choice.py", "tunjing_prose.py", "tunjing_scene.py", "tunjing_shot_facts.py")
+_VALIDATOR_NAMES = ("whale_task_source.py", "whale_compiler.py", "whale_gatekeeper.py",
+                    "whale_diff_audit.py", "whale_audio_contract.py", "whale_core.py", "whale_blocking.py",
+                    "whale_pose_choice.py", "whale_prose.py", "whale_scene.py", "whale_shot_facts.py")
 
 
 def _file_digest(path):

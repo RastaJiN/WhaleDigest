@@ -1,4 +1,4 @@
-# 吞鲸纯血 Ref2V 生产管线规范 (Tunjing Pure Ref2V Pipeline Specification)
+# 吞鲸纯血 Ref2V 生产管线规范 (WhaleDigest Pure Ref2V Pipeline Specification)
 > 继承自吞鲸工作室《纯血 Ref2V 核心生产宪章》
 > 唯一铁律：彻底摒弃单镜首帧依赖（I2V 禁令），全片 100% 采用全局母版 Ref2V 一采直出！
 
@@ -22,7 +22,7 @@
 2. **面部微表情注意力交棒**：
    - 激烈动作中的失神、咬唇、泪痕，交棒给相邻的 **1.5s~3.0s 独立面部/微距特写 (`face` / `macro`)**，通过弹跳剪辑组合出完整的视听高潮。
 3. **0.00s 空间接触死锁与防僵硬二次动作**：
-   - 每个动作镜头从 `0.00s` 起即处于接触/结合就位状态（1:1 调用吞鲸引擎 `tunjing_poses_matrix.json` 的 `beats` 原文），杜绝前戏漫游穿模；
+   - 每个动作镜头从 `0.00s` 起即处于接触/结合就位状态（1:1 调用吞鲸引擎 `whale_poses_matrix.json` 的 `beats` 原文），杜绝前戏漫游穿模；
    - 全局挂载吞鲸引擎 `Motion quality（防僵硬）` 锁：包含预备—发力—跟随三阶段惯性、二次动作波浪晃动与呼吸起伏。
 
 ---
@@ -30,7 +30,7 @@
 ## 三、工作流负向清零真相与【正向肯定句绝对压油】
 
 吞鲸宝典内置引擎底层工作流（`H3 标准工作流`）中，**Node 328 = `ConditioningZeroOut` 将负向条件通道直接清零**。
-因此，任何写在负向里的排油词在物理上均不参与采样计算，**压除 LoRA 高光油腻感必须且只能靠正向肯定句**（已固化于 `tunjing_core.py` 的 `DE_OIL` 常量中）：
+因此，任何写在负向里的排油词在物理上均不参与采样计算，**压除 LoRA 高光油腻感必须且只能靠正向肯定句**（已固化于 `whale_core.py` 的 `DE_OIL` 常量中）：
 
 ```text
 Skin & Lighting: authentic matte velvet skin finish, powdered dry complexion texture, natural human skin with visible fine pores and subtle dermal grain, soft subsurface scattering with gentle matte light absorption, heavily diffused soft ambient illumination, organic 35mm cinema film grain, photorealistic human anatomy
@@ -62,7 +62,7 @@ Skin & Lighting: authentic matte velvet skin finish, powdered dry complexion tex
 - **Sampling Steps**：`10 ~ 12`
 - **Scheduler**：`beta` / `simple`
 - **画幅规格**：`9:16` (`864x1536` 或 `928x1664`)
-- **严格物理帧长公式**：`length = 5 + 17 * N`（由 `tunjing_scene.py` 按单镜秒数自动换算写入 `批量任务.json`）
+- **严格物理帧长公式**：`length = 5 + 17 * N`（由 `whale_scene.py` 按单镜秒数自动换算写入 `批量任务.json`）
 
 ---
 

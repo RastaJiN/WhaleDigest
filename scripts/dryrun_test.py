@@ -5,9 +5,9 @@ import struct
 import sys
 import tempfile
 import zlib
-import tunjing_scene as scene
-import tunjing_gatekeeper as gate
-from tunjing_compiler import lint_tunjing_document
+import whale_scene as scene
+import whale_gatekeeper as gate
+from whale_compiler import lint_whale_document
 
 
 def png_bytes():
@@ -32,7 +32,7 @@ def run_dryrun(target_dir):
         assert any(shot["size"] == "wide" for shot in shots), "wide regression fixture missing"
         prompt_text = Path(prompt_path).read_text(encoding="utf-8")
         assert "SPEECH:" in prompt_text and "会议开始了。" in prompt_text
-        errors, _ = lint_tunjing_document(prompt_text)
+        errors, _ = lint_whale_document(prompt_text)
         assert not errors, errors
         for step in range(1, 7):
             assert gate.check_gate(str(project), step), f"{aspect} gate {step} failed"
@@ -42,4 +42,4 @@ def run_dryrun(target_dir):
 
 if __name__ == "__main__":
     sys.stdout.reconfigure(encoding="utf-8")
-    run_dryrun(sys.argv[1] if len(sys.argv) > 1 else tempfile.mkdtemp(prefix="tunjing_neutral_"))
+    run_dryrun(sys.argv[1] if len(sys.argv) > 1 else tempfile.mkdtemp(prefix="whale_neutral_"))

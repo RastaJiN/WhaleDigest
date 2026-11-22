@@ -1,5 +1,5 @@
 from test_scene_blocking import build
-from tunjing_pose_select import select_poses_from_script
+from whale_pose_select import select_poses_from_script
 from pathlib import Path
 import tempfile
 import unittest
@@ -15,8 +15,8 @@ class SoloProps(unittest.TestCase):
     def test_offline_export(self):
         import subprocess
         import sys
-        import tunjing_scene as scene
-        import tunjing_gatekeeper as gate
+        import whale_scene as scene
+        import whale_gatekeeper as gate
         from dryrun_test import png_bytes
         for aspect in ('9:16', '16:9', '1:1'):
             with tempfile.TemporaryDirectory() as tmp:

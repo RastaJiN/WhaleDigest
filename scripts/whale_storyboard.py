@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-吞鲸宝典 · 单镜多节拍精修引擎 (Tunjing Single-Shot Beat Refiner)
+吞鲸宝典 · 单镜多节拍精修引擎 (WhaleDigest Single-Shot Beat Refiner)
 
-与 tunjing_scene.py（整段 120s 拆成 20~30 个独立短镜的主引擎）互补：
+与 whale_scene.py（整段 120s 拆成 20~30 个独立短镜的主引擎）互补：
 本脚本用于在需要把 2~3 个连续动作压进同一个 8~12s 镜头内部（一镜到底微节拍）时使用。
-所有底层常量、头部/尾部装配、场地承托面改写 (with_scene_surface) 100% 调用 tunjing_core，零重复定义！
+所有底层常量、头部/尾部装配、场地承托面改写 (with_scene_surface) 100% 调用 whale_core，零重复定义！
 """
 
 import argparse
 import re
-from tunjing_core import (
+from whale_core import (
     load_poses,
     load_recipes,
     FINISH_IDS,
@@ -116,8 +116,8 @@ def shot_time_bounds(dur, n, actions):
 
 
 def build_prompt(seq, dur=10.0, aspect="9:16", lines="", idea="", scene="当前场景", speaker=None):
-    from tunjing_core import single_shot_prompt, dialogue_needed_seconds
-    from tunjing_scene import normalize_aspect, resolve_slot_refs
+    from whale_core import single_shot_prompt, dialogue_needed_seconds
+    from whale_scene import normalize_aspect, resolve_slot_refs
     poses, recipes = load_poses(), load_recipes()
     unknown = [pid for pid in seq if pid not in poses]
     if not seq or unknown:
@@ -132,7 +132,7 @@ def build_prompt(seq, dur=10.0, aspect="9:16", lines="", idea="", scene="当前�
     bounds = shot_time_bounds(dur, len(actions), actions)
     timed = " ".join(f"From {bound['t0']:.2f}s to {bound['t1']:.2f}s: {with_scene_surface(action['text'], scene)}." for action, bound in zip(actions, bounds))
     shot = {"pose": "->".join(seq), "size": "mcu", "text_en": timed}
-    from tunjing_blocking import prepare
+    from whale_blocking import prepare
     prepare([shot], scene_name=scene)
     tier = resolve_slot_refs(shot["size"], shot["pose"], is_nude_state=False)[0]
     if speaker is None:

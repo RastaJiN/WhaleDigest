@@ -1,6 +1,6 @@
 # 吞鲸宝典 v4.0 · 全剧集视听调度、暧昧挑逗与动作真源大词典 (87套全矩阵)
 
-> **唯一数据真源声明**：本文档由 `references/tunjing_poses_matrix.json`（87套：含 8 大导演调度原语 + 10 大暧昧挑逗诱惑肢体 + 14 大权力对峙与情绪宣泄肢体 + 55 套高能肉戏体位）与 `references/transition_recipes.json`（40条换位配方）单向自动生成，严禁手改脱节！
+> **唯一数据真源声明**：本文档由 `references/whale_poses_matrix.json`（87套：含 8 大导演调度原语 + 10 大暧昧挑逗诱惑肢体 + 14 大权力对峙与情绪宣泄肢体 + 55 套高能肉戏体位）与 `references/transition_recipes.json`（40条换位配方）单向自动生成，严禁手改脱节！
 
 ---
 

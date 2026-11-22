@@ -9,8 +9,8 @@ import tempfile
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
-import tunjing_scene as sc
-from tunjing_compiler import lint_tunjing_prompt
+import whale_scene as sc
+from whale_compiler import lint_whale_prompt
 
 
 def fence(tag, content):
@@ -51,15 +51,15 @@ class BlockingTests(unittest.TestCase):
             '1':{'action':'<Subject 2> offers the envelope; <Subject 1> leaves it in the giver\'s hand.'},
             '2':{'action':'The envelope remains in the same hand.'},
             '3':{'action':'<Subject 1> looks down at the offered envelope, then looks back toward the giver.'}}}])
-        (root/'.tunjing_axis.json').write_text('{"female_screen_side":"left"}',encoding='utf-8')
-        old_axis=(root/'.tunjing_axis.json').read_bytes()
+        (root/'.whale_axis.json').write_text('{"female_screen_side":"left"}',encoding='utf-8')
+        old_axis=(root/'.whale_axis.json').read_bytes()
         board, rows = build(root, ['blocking_2s','prop_insert','srs_female','srs_male'], lines='1:S2:给你。|3:S1:先留着。')
         self.assertEqual((root/'分镜.md').read_bytes(), source)
-        self.assertEqual((root/'.tunjing_axis.json').read_bytes(), old_axis)
+        self.assertEqual((root/'.whale_axis.json').read_bytes(), old_axis)
         self.assertNotEqual(board.name,'分镜.md')
         for r in rows:
             b=r['blocking_state']; self.assertEqual(b['scene_id'],'A'); self.assertEqual(b['screen_left'],'S2'); self.assertEqual(b['end']['props']['envelope'],'S2'); self.assertEqual(b['end']['world']['S1'],'seated')
-            self.assertEqual(lint_tunjing_prompt(r['prompt'])[0],[])
+            self.assertEqual(lint_whale_prompt(r['prompt'])[0],[])
         self.assertIn('offers the envelope',rows[0]['prompt']);self.assertIn('within reach',rows[0]['prompt'].lower()); self.assertIn('envelope',rows[2]['prompt']);self.assertNotIn('<Subject 2>',rows[2]['prompt']); self.assertIn('screen-left',rows[2]['prompt'])
         self.assertNotIn('steps forward 15 cm',rows[0]['prompt']);self.assertNotIn('industrial metal desk',rows[0]['prompt']);self.assertIn('分镜明示',board.read_text(encoding='utf8'))
 
@@ -74,7 +74,7 @@ class BlockingTests(unittest.TestCase):
         self.assertEqual(dirs,{'S1','S2'})
 
     def test_script_direction_wins_over_stale_cache_and_quoted_lines(self):
-        (self.root/'.tunjing_axis.json').write_text('{"female_screen_side":"left"}',encoding='utf8')
+        (self.root/'.whale_axis.json').write_text('{"female_screen_side":"left"}',encoding='utf8')
         (self.root/'剧本.md').write_text('## 场次 A\n站位：男左女右\n女主：<d>[Chinese]下次改成女左男右。</d>\n', encoding='utf8')
         board,rs=build(self.root,['blocking_2s']); self.assertEqual(rs[0]['blocking_state']['screen_left'],'S2'); self.assertEqual(rs[0]['blocking_state']['source'],'剧本明示');self.assertTrue(board.is_file())
 
@@ -104,7 +104,7 @@ class BlockingTests(unittest.TestCase):
         self.assertIn('seated',rows[1]['prompt']);self.assertNotIn('table', rows[0]['prompt'].lower())
 
     def test_modified_adopted_board_invalidates_previous_batch_and_dry_runner(self):
-        from tunjing_task_source import load_task_source
+        from whale_task_source import load_task_source
         put(self.root,[{'id':'A','from':1,'screen_left':'S2'}]); b,rows=build(self.root,['blocking_2s','srs_female'])
         load_task_source(self.root)
         self.assertNotEqual(b.name,'分镜.md')

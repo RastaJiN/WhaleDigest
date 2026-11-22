@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-吞鲸宝典 v4.0 · ComfyUI 全自动后台批跑与微创重摇点火器 (Tunjing v4.0 Auto-Runner & Surgical Re-roller)
+吞鲸宝典 v4.0 · ComfyUI 全自动后台批跑与微创重摇点火器 (WhaleDigest v4.0 Auto-Runner & Surgical Re-roller)
 
 核心能力：
 1. 断点续跑 (Checkpoint Resume)：崩溃或中断后重启自动跳过已落盘合格镜头，绝不重头白跑。
@@ -24,13 +24,13 @@ import hashlib
 import math
 import urllib.request
 import urllib.error
-from tunjing_task_source import load_task_source, require_source_audit, source_record, validate_batch_metadata, validate_image_references
-from tunjing_media import probe_media
-from tunjing_audio_contract import resolve_audio_contract, validate_workflow_audio
-from tunjing_compiler import lint_task_prompt
+from whale_task_source import load_task_source, require_source_audit, source_record, validate_batch_metadata, validate_image_references
+from whale_media import probe_media
+from whale_audio_contract import resolve_audio_contract, validate_workflow_audio
+from whale_compiler import lint_task_prompt
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DEFAULT_WF = os.path.join(BASE_DIR, "..", "references", "workflows", "tunjing_v4_master_api.json")
+DEFAULT_WF = os.path.join(BASE_DIR, "..", "references", "workflows", "whale_v4_master_api.json")
 
 # ── 画幅解析（横屏项目必备）：ResolutionSelector 只认带括号的原生枚举值 ──────
 # 取值必须与 ComfyUI ResolutionSelector 的 COMBO 枚举逐字一致，否则整条 prompt 校验失败、静默零产出
@@ -358,7 +358,7 @@ def main():
         for shot in batch["batch_shots"]:
             resolve_audio_contract(shot, batch)
         if not args.dry_build:
-            with open(os.path.join(args.project_dir, ".tunjing_status.json"), encoding="utf-8") as fh:
+            with open(os.path.join(args.project_dir, ".whale_status.json"), encoding="utf-8") as fh:
                 require_source_audit(args.project_dir, json.load(fh))
     except (ValueError, OSError) as exc:
         print(f"[X] 任务或门禁无效: {exc}")
@@ -431,9 +431,9 @@ def main():
     # ── 物理防擅自开跑死锁 (Anti-Autostart Ignition Lock) ──
     # 1) 必须已通过 Gate 1 ~ Gate 5
     import hashlib
-    status_file = os.path.join(args.project_dir, ".tunjing_status.json")
+    status_file = os.path.join(args.project_dir, ".whale_status.json")
     if not os.path.exists(status_file):
-        print("[X 越权拦截] 未找到 .tunjing_status.json！严禁跳过 Gate 1~5 擅自启动 ComfyUI 渲染！")
+        print("[X 越权拦截] 未找到 .whale_status.json！严禁跳过 Gate 1~5 擅自启动 ComfyUI 渲染！")
         sys.exit(1)
     st_data = json.load(open(status_file, "r", encoding="utf-8"))
     if not {1, 2, 3, 4, 5}.issubset(set(st_data.get("passed_steps", []))):
@@ -442,7 +442,7 @@ def main():
 
     # 2) Match the current integrity token; a bundled key is not an authentication boundary.
     try:
-        from tunjing_core import sign_project
+        from whale_core import sign_project
         expected_token = sign_project(args.project_dir)
     except Exception as exc:
         print(f"[X] 无法计算当前任务签名，拒绝降级放行: {exc}")
@@ -588,7 +588,7 @@ def main():
         print("\n" + "=" * 70)
         print("🎬 全集镜头渲染完毕！正在自动启动【母带精修 (-16 LUFS) ➔ 自动导入剪映草稿箱】流水线...")
         print("=" * 70)
-        master_script = os.path.join(BASE_DIR, "tunjing_mastering.py")
+        master_script = os.path.join(BASE_DIR, "whale_mastering.py")
         jy_script = os.path.join(BASE_DIR, "export_jianying_draft.py")
         subprocess.run([sys.executable, master_script, args.project_dir], check=True)
         subprocess.run([sys.executable, jy_script, args.project_dir], check=True)

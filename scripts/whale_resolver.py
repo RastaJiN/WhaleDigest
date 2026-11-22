@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-吞鲸宝典 · 床戏动作实时响应引擎 (Tunjing Pose Real-time Resolver)
+吞鲸宝典 · 床戏动作实时响应引擎 (WhaleDigest Pose Real-time Resolver)
 
 用法：在创作到床戏环节时，直接喊动作需求，本引擎 1:1 从吞鲸宝典内置引擎矩阵
 返回该动作的完整送模提示词（Framing + 压油 + Beats + Line）。
 
 命令行：
-    python tunjing_resolver.py "女口交"          # 单个动作
-    python tunjing_resolver.py "扣女穴"          # 指插
-    python tunjing_resolver.py "女上位"          # 骑乘
-    python tunjing_resolver.py --list            # 列出全部 55 套可用动作
-    python tunjing_resolver.py --scene "..." --aspect 16:9  # 整段床戏剧本按横屏拆解
+    python whale_resolver.py "女口交"          # 单个动作
+    python whale_resolver.py "扣女穴"          # 指插
+    python whale_resolver.py "女上位"          # 骑乘
+    python whale_resolver.py --list            # 列出全部 55 套可用动作
+    python whale_resolver.py --scene "..." --aspect 16:9  # 整段床戏剧本按横屏拆解
 """
 
 import argparse
@@ -21,7 +21,7 @@ import os
 import re
 
 MATRIX_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                           "..", "references", "tunjing_poses_matrix.json")
+                           "..", "references", "whale_poses_matrix.json")
 
 # 恒定正向压油模板（吞鲸引擎 Node 328 零化负向的物理真相：靠正向肯定句压油）
 DE_OIL = ("authentic matte velvet skin finish, powdered dry texture, natural human skin "
@@ -128,7 +128,7 @@ def resolve(query):
 
 def render_prompt(pid, entry, dur=10.0, aspect="9:16"):
     """Format a matrix entry with the current shared Ref2VA schema."""
-    from tunjing_core import single_shot_prompt, dialogue_needed_seconds
+    from whale_core import single_shot_prompt, dialogue_needed_seconds
     if not 0 < dur <= 12.25:
         raise ValueError("Single-shot duration must be within 0..12.25 seconds")
     line = entry.get("lineZh") or ""

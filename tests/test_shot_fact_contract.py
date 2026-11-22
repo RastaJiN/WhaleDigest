@@ -9,8 +9,8 @@ import tempfile
 import unittest
 
 from test_scene_blocking import build, put, sc
-import tunjing_pose_choice as choice
-from tunjing_task_source import TaskSourceError, execution_board_path, load_task_source
+import whale_pose_choice as choice
+from whale_task_source import TaskSourceError, execution_board_path, load_task_source
 
 
 def write_json(path, data):
@@ -153,7 +153,7 @@ class ShotFactContract(unittest.TestCase):
         for key in ('blocking_input_hashes', 'execution_board'):
             batch.pop(key)
         write_json(stripped, batch)
-        write_json(self.root / '.tunjing_project.json', {'active_batch': stripped.name})
+        write_json(self.root / '.whale_project.json', {'active_batch': stripped.name})
         with self.assertRaises(TaskSourceError):
             load_task_source(self.root)
 

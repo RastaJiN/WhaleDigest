@@ -42,7 +42,7 @@
 剧本定稿后，直接将本集参数喂给拆镜引擎，自动生成适配 `{{ SCENE_NAME }}` 承托面的 `分镜.md` + `视频提示词.md` + `批量任务.json`：
 
 ```bash
-python scripts/tunjing_scene.py \
+python scripts/whale_scene.py \
   --chain "{{ POSE_CHAIN }}" \
   --total {{ TOTAL_SEC }} \
   --scene "{{ SCENE_NAME }}" \

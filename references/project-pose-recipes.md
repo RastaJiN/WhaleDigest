@@ -9,7 +9,7 @@ Create `demo/pose_recipes.json` in a fresh project directory, encoded as UTF-8:
 From the repository root:
 
 ```sh
-python scripts/tunjing_scene.py --out-dir demo --chain standing_signal --total 5 --scene studio
+python scripts/whale_scene.py --out-dir demo --chain standing_signal --total 5 --scene studio
 python -m unittest discover -s tests -p test_local_pose.py
 ```
 

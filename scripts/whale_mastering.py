@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-吞鲸宝典 v4.0 · 母带音画精修与声学特效缝合引擎 (Tunjing v4.0 Audio-Visual Mastering Engine)
+吞鲸宝典 v4.0 · 母带音画精修与声学特效缝合引擎 (WhaleDigest v4.0 Audio-Visual Mastering Engine)
 
 核心特性：
 1. 首部 2 帧“起势微顿帧”自动修剪 (`--trim-head-frames 2`，即 0.083s)：切除扩散模型从参考图刚起势的微僵硬帧，保留最流畅的中后段动量。
@@ -23,8 +23,8 @@ import subprocess
 import argparse
 import tempfile
 from fractions import Fraction
-from tunjing_task_source import load_task_source
-from tunjing_media import find_clip, probe_media
+from whale_task_source import load_task_source
+from whale_media import find_clip, probe_media
 
 
 def load_shot_audio_fx_map(project_dir):
@@ -154,7 +154,7 @@ def master_episode(project_dir, trim_head_frames=2, out_name="全集精修母带
 
     # Stream-copy concatenation requires one stable canvas and frame rate.
     try:
-        from tunjing_scene import normalize_aspect
+        from whale_scene import normalize_aspect
         aspect = normalize_aspect(batch.get("aspect", "9:16"))
         aw, ah = map(int, aspect.split(":"))
         expected_ratio = aw / ah

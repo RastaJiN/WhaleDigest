@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-吞鲸宝典 · 文戏镜头语言引擎 (Tunjing Dialogue Cinematography Engine)
+吞鲸宝典 · 文戏镜头语言引擎 (WhaleDigest Dialogue Cinematography Engine)
 
 解决「发散型大模型不会设计文戏镜头语言」的根本症结：
 肉戏有据可查（体位代号 -> 自动出景别/机位/运镜），但文戏一直靠模型自由发挥，
@@ -14,7 +14,7 @@
 """
 
 # 文戏镜头语言配方库：意图 -> (景别, 机位, 运镜, 剪接节奏说明, 英文送模描述)
-# 所有常量 100% 复用 tunjing_core 的英文语义，零重复定义。
+# 所有常量 100% 复用 whale_core 的英文语义，零重复定义。
 DIALOGUE_SHOT_RECIPES = {
     # 1. 建立/交代环境 —— 定位空间与人物位置关系
     "establish": {

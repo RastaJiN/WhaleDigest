@@ -1,6 +1,6 @@
 # 后期独立配乐：逐曲预览、显式确认与本地混音
 
-适用范围：配合 `后期单.json` 中的 `music` 数组，对项目目录内**本机已有音频文件**做逐条审核确认，再由 `tunjing_post.py render` 调用 `prepare_music` / `mix_music` 混入成片。**与 H3 渲染签字完全隔离，不联网、不调用任何付费或音频生成服务。**
+适用范围：配合 `后期单.json` 中的 `music` 数组，对项目目录内**本机已有音频文件**做逐条审核确认，再由 `whale_post.py render` 调用 `prepare_music` / `mix_music` 混入成片。**与 H3 渲染签字完全隔离，不联网、不调用任何付费或音频生成服务。**
 
 ## 条目格式
 
@@ -19,10 +19,10 @@
 
 ```bash
 # 1. 只读预览：列出每条规格、确认状态与完整 64 位 SHA256 指纹
-python scripts/tunjing_post_music.py preview <项目目录>
+python scripts/whale_post_music.py preview <项目目录>
 
-# 2. 用户听取并明确选定后，逐条按完整指纹确认（写入 .tunjing_post_music.json）
-python scripts/tunjing_post_music.py confirm <项目目录> --id MUSIC-01 --sha256 <64位完整SHA256>
+# 2. 用户听取并明确选定后，逐条按完整指纹确认（写入 .whale_post_music.json）
+python scripts/whale_post_music.py confirm <项目目录> --id MUSIC-01 --sha256 <64位完整SHA256>
 ```
 
 ## 隔离与失效规则

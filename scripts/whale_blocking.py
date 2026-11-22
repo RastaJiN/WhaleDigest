@@ -246,9 +246,9 @@ def _script_facts(text, default_scene, *, prose_scenes=False):
     found, implicit = {}, {}
     if prose_scenes:
         if __package__:
-            from .tunjing_prose import source_rows
+            from .whale_prose import source_rows
         else:
-            from tunjing_prose import source_rows
+            from whale_prose import source_rows
         lines = ((r['scene'] or default_scene,r['clean']) for r in source_rows(text))
     else:
         lines = ((None,line) for line in _stage_lines(text))
@@ -351,14 +351,14 @@ def prepare(shots, *, scene_name, project=None, script_path=None, scene_id=None,
             raise ValueError(f'{sid}：legacy_axis 只能为 true/false')
         if spec.get('legacy_axis') and left is None:
             if root is None: raise ValueError(f'{sid}：旧站位需指定项目目录')
-            data = json.loads((root/'.tunjing_axis.json').read_text(encoding='utf-8-sig'))
+            data = json.loads((root/'.whale_axis.json').read_text(encoding='utf-8-sig'))
             v = data.get('female_screen_side')
             if v not in ('left','right'): raise ValueError(f'{sid}：指定沿用的旧站位无效')
             left = 'S1' if v=='left' else 'S2'; src='分镜指定沿用'
         if left is None:
             # A legacy axis ledger is only a compatibility input when there is no
             # authored script/board decision; it never overrides a new scene.
-            legacy = root / '.tunjing_axis.json' if root is not None else None
+            legacy = root / '.whale_axis.json' if root is not None else None
             if legacy is not None and legacy.is_file() and not adopted and not scene_id and not facts and not implicit:
                 data = json.loads(legacy.read_text(encoding='utf-8-sig'))
                 value = data.get('female_screen_side')

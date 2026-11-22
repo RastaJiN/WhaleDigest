@@ -1,5 +1,5 @@
 """
-吞鲸工作室 · 全流程步进门禁状态机 (Tunjing Pipeline Gatekeeper)
+吞鲸工作室 · 全流程步进门禁状态机 (WhaleDigest Pipeline Gatekeeper)
 严格执行：Step 1 ➔ Step 2 ➔ Step 3 ➔ Step 4 ➔ Step 5
 每一步必须校验前置产物，通过才放行下一步。严禁跳步！
 """
@@ -8,10 +8,10 @@ import os
 import sys
 import json
 import re
-from tunjing_task_source import (load_task_source, source_record, refresh_status,
+from whale_task_source import (load_task_source, source_record, refresh_status,
                                  require_source_audit, TaskSourceError, validate_batch_metadata,
                                  stage_record, gate_evidence, validate_asset_image)
-from tunjing_compiler import lint_task_prompt
+from whale_compiler import lint_task_prompt
 
 STAGE_NAMES = {
 1: "第 1 步：角色母版与资产建库 (Asset Foundation)",
@@ -23,7 +23,7 @@ STAGE_NAMES = {
 }
 
 def get_status_file(project_dir):
-    return os.path.join(project_dir, ".tunjing_status.json")
+    return os.path.join(project_dir, ".whale_status.json")
 
 def load_status(project_dir):
     status_file = get_status_file(project_dir)
@@ -85,8 +85,8 @@ def audit_step_2(project_dir):
         content = f.read()
         
     from pathlib import Path
-    from tunjing_pose_choice import PLAN, reviewed_plan, authored_text
-    import tunjing_prose as prose
+    from whale_pose_choice import PLAN, reviewed_plan, authored_text
+    import whale_prose as prose
     receipt = Path(project_dir)/PLAN
     planned = None
     if receipt.is_file():
@@ -138,7 +138,7 @@ def audit_step_2(project_dir):
         return False, f"剧本门禁未通过：[AI腔台词拦截] 检测到书面套话/翻译腔 {sorted(set(cliche_hits))}！请改为 12 字以内的口语化狠话或潜台词短句。"
         
     # 从唯一数据真源动态加载全部动作/调度 ID，避免矩阵更新后 Gate 2 硬编码列表滞后
-    matrix_path = Path(__file__).resolve().parent.parent / "references" / "tunjing_poses_matrix.json"
+    matrix_path = Path(__file__).resolve().parent.parent / "references" / "whale_poses_matrix.json"
     KNOWN_IDS = set(json.loads(matrix_path.read_text(encoding="utf-8-sig")).keys())
     # 反作弊锁 5：严禁将英文代码箭头 (pose_a -> pose_b) 粗暴塞入 Markdown 标题行充数！
     heading_cheat = re.findall(r'^#{1,4}\s+.*?\([a-z_]+\s*->\s*[a-z_]+.*\)', content, re.MULTILINE)
@@ -147,7 +147,7 @@ def audit_step_2(project_dir):
 
     # 支持自然中文动作描述或标准 ID 识别（无需为迎合正则污染剧本标题）
     ZH_ACTION_KEYWORDS = re.findall(r'(站立按墙|按墙后入|后入|跪姿口交|口交|深喉|传教士|正面交合|观音坐莲|女上位|骑乘|侧卧|指插|自慰|潮吹|高潮|捏下巴|壁咚|递卡|房卡)', content)
-    from tunjing_solo import PROP_IDS
+    from whale_solo import PROP_IDS
     KNOWN_IDS.update(PROP_IDS)
     ids_in_script = set(re.findall(r'\b([a-z][a-z_0-9]{1,24})\b', content)) & KNOWN_IDS
     if len(ids_in_script) + len(set(ZH_ACTION_KEYWORDS)) < 2:
@@ -162,8 +162,8 @@ def audit_step_2(project_dir):
 
 def audit_step_3(project_dir):
     """Validate each declared shot using the same duration and dialogue contract as generation."""
-    from tunjing_core import dialogue_needed_seconds, STAGING_IDS
-    from tunjing_task_source import execution_board_path
+    from whale_core import dialogue_needed_seconds, STAGING_IDS
+    from whale_task_source import execution_board_path
     try:
         path = execution_board_path(project_dir)
     except (ValueError, OSError) as exc:
@@ -327,14 +327,14 @@ def check_gate(project_dir, target_step=None):
             print(f"\n[✓] 门禁通过: {msg}")
             if target_step in (2, 3):
                 try:
-                    import tunjing_advisor
-                    adv = tunjing_advisor.diagnose_project(project_dir)
+                    import whale_advisor
+                    adv = whale_advisor.diagnose_project(project_dir)
                     if adv.get("suggestions"):
                         print("\n" + "─" * 65)
                         print("💡 【鲸鲸导演主动升维顾问 (Proactive Director Advisor)】：")
                         for idx_s, sg in enumerate(adv["suggestions"], 1):
                             print(f"  {idx_s}. {sg['dimension']} -> {sg['action'].splitlines()[0]}")
-                        print(f"  👉 可随时运行 `python scripts/tunjing_advisor.py '{project_dir}'` 查看完整升维方案与推荐拆镜链！")
+                        print(f"  👉 可随时运行 `python scripts/whale_advisor.py '{project_dir}'` 查看完整升维方案与推荐拆镜链！")
                         print("─" * 65)
                 except Exception:
                     pass
@@ -369,7 +369,7 @@ def check_gate(project_dir, target_step=None):
 
 if __name__ == "__main__":
     if len(sys.argv) < 2 or sys.argv[1] in ("-h", "--help"):
-        print("用法: python tunjing_gatekeeper.py <项目目录路径> [可选目标步骤1-6]")
+        print("用法: python whale_gatekeeper.py <项目目录路径> [可选目标步骤1-6]")
         sys.exit(0 if len(sys.argv) >= 2 and sys.argv[1] in ("-h", "--help") else 1)
 
     p_dir = sys.argv[1]

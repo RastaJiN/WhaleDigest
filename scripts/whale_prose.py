@@ -147,7 +147,7 @@ def dialogue_on(line: str, names=()) -> list[dict[str, Any]]:
 
 
 def slot(name):
-    from tunjing_core import resolve_speaker
+    from whale_core import resolve_speaker
     try: return 'S'+str(resolve_speaker({'她':'S1','他':'S2'}.get(name,name)))
     except ValueError: return None
 

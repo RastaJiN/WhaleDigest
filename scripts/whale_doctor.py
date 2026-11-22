@@ -1,6 +1,6 @@
 
 import json
-from tunjing_compiler import lint_task_prompt
+from whale_compiler import lint_task_prompt
 
 def doctor_review(shot, feedback):
     """根据门禁报错，生成修改指令"""

@@ -5,9 +5,9 @@ import re
 from pathlib import Path
 
 if __package__:
-    from . import tunjing_prose as prose
+    from . import whale_prose as prose
 else:
-    import tunjing_prose as prose
+    import whale_prose as prose
 
 
 def source_hash(text, scene=''):
@@ -25,8 +25,8 @@ CONTEXT_ONLY = {'手指','床边','正面','地板','背对他','撑墙','撑桌
 
 
 def candidate_index(poses):
-    from tunjing_pose_select import POSE_KEYWORD_MAP
-    from tunjing_solo import PROP_ACTIONS
+    from whale_pose_select import POSE_KEYWORD_MAP
+    from whale_solo import PROP_ACTIONS
     index = {}
     for pid, p in sorted(poses.items()):
         category = p['category']
@@ -47,7 +47,7 @@ GROUPS = {'女上坐姿': ('main_pose', SEAT), '观音坐莲': ('main_pose', SEA
 
 
 CARD = '分镜体位选择.json'
-PLAN = '.tunjing_pose_plan.json'
+PLAN = '.whale_pose_plan.json'
 BOARD = '已决分镜.json'
 ROLES = ('foreplay', 'main_pose', 'solo_action')
 ABSENT = ('none', 'not_in_shot', 'already_established')
@@ -178,9 +178,9 @@ FIELDS = {'initiator': ('S1','S2','both'), 'pace': ('slow','steady','fast'),
 
 
 def _card(label,line,digest,events,entry,presence,order_text,errors,prior,index,poses,project,leader=None):
-    from tunjing_local_recipe import resolve
-    from tunjing_scene import plan_shot
-    from tunjing_solo import PROP_IDS
+    from whale_local_recipe import resolve
+    from whale_scene import plan_shot
+    from whale_solo import PROP_IDS
     steps=[]; previous=prior.get('steps',[])
     for i,(role,options,fixed) in enumerate(events):
         old=previous[i] if i<len(previous) and isinstance(previous[i],dict) else {}
@@ -396,7 +396,7 @@ def choose(text,source,poses,scene,scene_id=None):
 def reviewed_plan(project,source,scene,scene_id=None):
     """Check the receipt and hashes. Do not repeat pose selection at export."""
     root=Path(project); path=root/PLAN
-    if not path.is_file(): raise ValueError('Missing pose review; rerun tunjing_pipeline.py')
+    if not path.is_file(): raise ValueError('Missing pose review; rerun whale_pipeline.py')
     plan=json.loads(path.read_text('utf8')); source=Path(source) if source else root/'剧本.md'
     authored=authored_text(source.read_text('utf-8-sig'))
     if plan.get('cast_sha256') != file_hash(root/'角色映射.json'):
@@ -405,13 +405,13 @@ def reviewed_plan(project,source,scene,scene_id=None):
         raise ValueError('Local pose recipe changed; rerun storyboard review')
     if (source.resolve().parent!=root.resolve() or source.name!=plan['source'] or scene!=plan['scene'] or scene_id!=plan['scene_id'] or
             source_hash(authored)!=plan['source_hash'] or file_hash(root/CARD)!=plan['card_sha256']):
-        raise ValueError('Pose review is stale; source, scene or choices changed. Rerun tunjing_pipeline.py')
+        raise ValueError('Pose review is stale; source, scene or choices changed. Rerun whale_pipeline.py')
     cards=[projection(c) for c in json.loads((root/CARD).read_text('utf8'))] if (root/CARD).exists() else []
     chain=[]; decisions={}
     references = [item['card'] for item in plan['sequence'] if 'card' in item]
     if references != list(range(len(cards))):
         raise ValueError('Missing, reordered or duplicate reviewed card; rerun storyboard review')
-    from tunjing_core import DRAMATIC_BODY_IDS
+    from whale_core import DRAMATIC_BODY_IDS
     staging = DRAMATIC_BODY_IDS | {'env_establish','srs_male','srs_female','blocking_2s','prop_insert','cut_insert','spatial_shift','outro_solo'}
     if 'cast_sha256' in plan:
         aliases=json.loads((root/'角色映射.json').read_text('utf-8-sig')) if plan['cast_sha256'] else {}
@@ -458,5 +458,5 @@ def direction(row):
 
 
 if __name__ == '__main__':
-    from tunjing_pose_select import load_poses
+    from whale_pose_select import load_poses
     print(json.dumps(candidate_index(load_poses()), ensure_ascii=False, indent=2))

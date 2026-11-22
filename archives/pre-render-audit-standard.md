@@ -1,4 +1,4 @@
-# 吞鲸生成前自我终极审查标准 (Tunjing Pre-Render Self-Audit Standard)
+# 吞鲸生成前自我终极审查标准 (WhaleDigest Pre-Render Self-Audit Standard)
 > 吞鲸工作室专属军规 · 任何项目在进入 Gate 6 渲染导出前，必须通过本标准的六大维度 100% 盲检并出具报告。
 > 唯一准则：全部维度 PASS 方可放行；任一维度出现 REJECT 立即阻断修复。
 

@@ -1,4 +1,4 @@
-# 吞鲸视听弹跳分镜规范 (Tunjing Bounce Shot Design)
+# 吞鲸视听弹跳分镜规范 (WhaleDigest Bounce Shot Design)
 > 吞鲸工作室专属导演指南 · 彻底粉碎平铺直叙与死板平摊时长，把短剧视听呼吸感做到院线级拉扯。
 
 ---

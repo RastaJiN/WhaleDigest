@@ -1,5 +1,5 @@
 import unittest
-from tunjing_prose import dialogue_on
+from whale_prose import dialogue_on
 
 class TestProseImport(unittest.TestCase):
     def test_prose_logic(self):
