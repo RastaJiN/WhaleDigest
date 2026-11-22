@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-export_html.py — 短剧扒剧本 · 深度还原 Skill V4.0.1 离线单页 HTML 文档 & CSV 导出器
+export_html.py — 吞鲸宝典逆向拆剧模块离线单页 HTML 报告与 CSV 导出器
 功能：
   1. 读取结构化 JSON，一键生成【100% 离线可用、单文件零外部依赖】的单页连续滚动 HTML 剧本还原报告（无需分页切换，从上到下流畅阅读、打印或导出 PDF）。
   2. 顶部自带悬浮目录锚点（点击平滑跳转各模块）、明暗主题切换、一键复制整集剧本、一键导出逐字稿/台词 CSV 表格。
@@ -9,7 +9,7 @@ export_html.py — 短剧扒剧本 · 深度还原 Skill V4.0.1 离线单页 HTM
      - 二、《深度还原剧本》（场次、△动作与神态调度、对白、OS/VO 清晰高亮，支持一键复制整集剧本）
      - 三、《骨架分析卡》（结构公式、节拍表、钩子/OS爽点盘点、可迁移 vs 不可迁移）
      - 四、《L1+L2 逐句 1:1 画面绑定逐字稿》
-  4. ★V4.0.1 新增：`--write-example` 直接吐出符合本脚本字段的示例 JSON（字段口径唯一权威 = references/data-schema.json）；
+  4. 新增：`--write-example` 直接吐出符合本脚本字段的示例 JSON（字段口径唯一权威 = references/data-schema.json）；
      生成前先做字段体检，缺关键字段会明确报警而不是产出一份四块空白的报告；打印/PDF 强制浅色，不再黑底黑字。
   5. JSON/data.json 字段定义见 references/data-schema.json（脚本内 selftest 的 demo 与之一致）。
 
@@ -24,7 +24,7 @@ import json
 import os
 import sys
 
-# V4.0.1 补丁：utf-8-sig 读入，兼容 Windows 记事本 / PowerShell 写出的 UTF-8 BOM。
+# 修复：utf-8-sig 读入，兼容 Windows 记事本 / PowerShell 写出的 UTF-8 BOM。
 # BOM 未剥离时 json.loads 直接抛 Unexpected UTF-8 BOM，整个出稿流程当场死掉。
 BOM_SAFE_ENCODING = "utf-8-sig"
 
@@ -41,7 +41,7 @@ HTML_TEMPLATE = r"""
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<meta name="generator" content="short-drama-teardown · export_html.py V4.0.1" />
+<meta name="generator" content="tunjing-baodian · teardown_export_html.py" />
 <meta name="color-scheme" content="light dark" />
 <title>__PAGE_TITLE__</title>
 <style>
@@ -493,7 +493,7 @@ HTML_TEMPLATE = r"""
         <button class="btn primary" type="button" onclick="copyScript(this)" title="复制整集剧本">📋 复制整集剧本</button>
       </div>
     </div>
-    <div class="copyright-note">⚠️ 拆解学习用途 · 骨架与结构可迁移 · 原作台词与专有设定不可照搬商用 · 生成器 export_html.py V4.0.1</div>
+    <div class="copyright-note">⚠️ 拆解学习用途 · 骨架与结构可迁移 · 原作台词与专有设定不可照搬商用 · 生成器 teardown_export_html.py</div>
   </header>
 
   <div class="nav-shell">
@@ -905,7 +905,7 @@ BEAT_KEYS = ("unit", "hook", "escalation", "twist", "cliffhanger", "intensity")
 
 
 def validate_data(data):
-    """字段体检（V4.0.1）：返回 (blocking_errors, warnings)。
+    """字段体检（吞鲸宝典逆向拆剧模块）：返回 (blocking_errors, warnings)。
     blocking 为空才允许出报告；warnings 逐条打印，避免「静默产出四块空白报告」。"""
     errors, warnings = [], []
     if not isinstance(data, dict):
@@ -997,7 +997,7 @@ def selftest():
     assert "<!DOCTYPE html>" in html_out
     assert "剧本深度还原报告" in html_out
     assert "涂山瑶（涂山老祖宗）" in html_out
-    # V4.0.1：占位符必须全部替换；默认浅色主题；打印块含浅色变量
+    # 占位符必须全部替换；默认浅色主题；打印块含浅色变量
     for ph in ("__DEFAULT_THEME__", "__PAGE_TITLE__", "__JSON_DATA__"):
         assert ph not in html_out, ph
     assert 'data-theme="light"' in html_out
@@ -1019,7 +1019,7 @@ def selftest():
     evil = {"meta": {"title": "x"}, "transcript": [{"index": 1, "text": "</script><b>x</b>"}],
             "script_scenes": [{"header": "s", "blocks": []}]}
     assert "</script><b>x</b>" not in build_html(evil)
-    # V4.0.1 补丁回归：带 UTF-8 BOM 的 data.json 必须能读（Windows 手写 JSON 常见坑）
+    # 回归检查：带 UTF-8 BOM 的 data.json 必须能读（Windows 手写 JSON 常见坑）
     import tempfile
     bom_path = os.path.join(tempfile.gettempdir(), "export_html_bom_selftest.json")
     with io.open(bom_path, "w", encoding="utf-8-sig") as fh:

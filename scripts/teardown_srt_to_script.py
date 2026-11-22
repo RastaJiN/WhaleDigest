@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-srt_to_script.py — 扒剧引擎 V4.0.1 L1 字幕层转换与预审工具
+srt_to_script.py — 吞鲸宝典逆向拆剧模块 L1 字幕层转换与预审工具
 功能升级（针对客户三大反馈：漏字幕、画外音难辨、同音错别字）：
   1. 多源解析：支持 .srt / .vtt / .bcc / 剪映草稿 JSON (draft_content.json / draft_info.json) 批量直读
   2. 防吞句智能合并：默认 --merge 0（逐句保留，不再盲目把 3 秒内多句快节奏对白吞并成一句）；
@@ -22,7 +22,7 @@ import os
 import re
 import sys
 
-# V4.0.1 补丁：统一用 utf-8-sig 读入，兼容 Windows 记事本 / PowerShell Set-Content / EXCEL 导出的
+# 修复：统一用 utf-8-sig 读入，兼容 Windows 记事本 / PowerShell Set-Content / EXCEL 导出的
 # UTF-8 BOM。BOM 残留会让首行时间轴判不出数字，json.loads 则直接抛 Unexpected UTF-8 BOM。
 BOM_SAFE_ENCODING = 'utf-8-sig'
 
@@ -64,7 +64,7 @@ MAX_FRAGMENT_LEN = 12    # 只有 ≤12 字的碎片句才允许并入上句
 
 
 def fmt(t):
-    """秒 -> mm:ss.mmm。先整体转毫秒再拆分，避免 round(0.9996*1000)=1000 造成的进位丢失（V4.0.1 修）"""
+    """秒 -> mm:ss.mmm。先整体转毫秒再拆分，避免 round(0.9996*1000)=1000 造成的进位丢失（已修复）"""
     if t < 0:
         t = 0.0
     total_ms = int(round(t * 1000))
@@ -192,7 +192,7 @@ def dedup_rolling(items):
 
 def merge(items, gap):
     """
-    安全合并（V4.0.1 重写）：
+    安全合并（已重写）：
     - gap <= 0 时（默认）：绝不合并，保持逐句独立，防止把快节奏对话和画外音吞并成一句。
     - gap > 0 时，必须同时满足以下全部条件才拼接，否则一律独立并留痕：
         ① 与上句间隔 <= gap
@@ -286,7 +286,7 @@ def detect_clue(text, prev_text='', next_text=''):
 
 def is_voiceover_label(clue):
     """只有被 〔〕 包住的才是真判定的 OS/VO/系统/通讯标签；
-    默认兜底串「待核（对白/OS）」不算，避免把未判定的句子统计成画外音（V4.0.1 修）"""
+    默认兜底串「待核（对白/OS）」不算，避免把未判定的句子统计成画外音（已修复）"""
     if not clue or clue.startswith('〔空'):
         return False
     return clue.startswith('〔')
@@ -347,7 +347,7 @@ def to_md(items, src, gap_warn=3.5, glossary=None, merge_marks=None):
         rows.append(f"| {idx+1} | {fmt(s)}-{fmt(e)} | {fixed_c} | {clue} | {note_str} |")
 
     summary = (
-        f"## L1 字幕层逐字稿（V4.0.1 防漏字·画外音初标版）\n\n"
+        f"## L1 字幕层逐字稿（防漏字·画外音初标版）\n\n"
         f"> 来源：`{src}` · 共 **{len(items)}** 句台词 · "
         f"画外音/系统音初标 **{os_count}** 处 · "
         f"时间断层预警 **{gap_warnings}** 处 · "
@@ -383,7 +383,7 @@ def selftest():
     assert '〔疑似OS·内心独白〕' in md
     assert '〔系统音（OS）〕' in md
     assert '〔时间断层 4.5s〕' in md
-    # V4.0.1 补丁回归：UTF-8 BOM 输入不得吞掉首句（Windows 记事本 / PowerShell 写出最常见）
+    # 回归检查：UTF-8 BOM 输入不得吞掉首句（Windows 记事本 / PowerShell 写出最常见）
     import tempfile
     bom_path = os.path.join(tempfile.gettempdir(), 's2s_bom_selftest.srt')
     with io.open(bom_path, 'w', encoding='utf-8-sig') as fh:
@@ -416,7 +416,7 @@ def selftest():
     jy_items = parse_input(jy_demo, 'draft_content.json')
     assert len(jy_items) == 2 and jy_items[0][2] == '第一句台词'
 
-    # —— V4.0.1 回归断言 ——
+    # 回归断言
     # ① 毫秒进位不再丢失（剪映微秒除 1e6 高频出现 .9996）
     assert fmt(59.9996) == '01:00.000', fmt(59.9996)
     assert fmt(61.9999) == '01:02.000', fmt(61.9999)
@@ -451,7 +451,7 @@ VALUE_OPTS = ('--merge', '--out', '--gap-warn', '--glossary')
 
 
 def split_argv(argv):
-    """稳健参数解析：选项与其取值成对消费，位置参数不受选项顺序影响（V4.0.1 重写）"""
+    """稳健参数解析：选项与其取值成对消费，位置参数不受选项顺序影响（已重写）"""
     positional, opts = [], {}
     i = 0
     while i < len(argv):

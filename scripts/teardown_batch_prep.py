@@ -1,13 +1,13 @@
 # -*- coding: utf-8 -*-
 """
-batch_prep.py — 扒剧引擎 V4.0.1 本地零 Token 批量预处理与「逐句 1:1 画面绑定」工具
+batch_prep.py — 吞鲸宝典逆向拆剧模块批量预处理与逐句画面绑定工具 本地零 Token 批量预处理与「逐句 1:1 画面绑定」工具
 解决痛点：
   1. 解决「直接发视频（通道B）说话人全乱、一人被拆成四个名字、魔物台词安给配角」：
      新增 `--bind-frames <video.mp4> <sub.srt|json>` 功能！
      自动读取每一句台词的时间码 `start ~ end`，在**每一句台词的正中间秒位 `(start+end)/2`**
      精准抽取 1 张关键帧（命名为 `L001_00m05.50s_瑶瑶守好家.jpg`），实现「1句台词 = 1张对应画面」，
      彻底杜绝「每隔 15 秒稀疏抽帧导致中间台词张冠李戴」！
-     ★V4.0.1：抽帧失败不再静默——索引表标注「❌ 未抽到帧」，并在结尾汇总失败句号、以退出码 3 报警。
+     ★修复：抽帧失败不再静默——索引表标注「❌ 未抽到帧」，并在结尾汇总失败句号、以退出码 3 报警。
   2. 解决「豆包直接看视频漏字幕 + 额度消耗极快 + 排队崩」：
      提供 `--audio-dir` 批量提取 16kHz 极轻单声道音频，以及 `--crop-sub` 裁剪 4fps 底部字幕带。
 
@@ -85,7 +85,7 @@ def bind_frames_to_subtitles(video_path, sub_path, out_dir):
     通道 B（直接发视频）核心武器：
     读取 SRT/VTT/JSON 中每一句台词的起止时间码，在每句台词正中间 (start+end)/2 抽取 1 张画面帧，
     并生成一份《逐句时间码-画面帧对位索引表.md》，彻底杜绝跨句盲猜说话人！
-    V4.0.1：逐帧核验 ffmpeg 返回码与文件是否真的落盘，失败即在索引表打 ❌ 并汇总报警。
+    修复：逐帧核验 ffmpeg 返回码与文件是否真的落盘，失败即在索引表打 ❌ 并汇总报警。
     """
     if not has_ffmpeg():
         print("错误：未检测到 ffmpeg，请先安装 ffmpeg")
@@ -94,7 +94,7 @@ def bind_frames_to_subtitles(video_path, sub_path, out_dir):
     script_dir = os.path.dirname(os.path.abspath(__file__))
     if script_dir not in sys.path:
         sys.path.insert(0, script_dir)
-    import teardown_srt_to_script as s2s
+    from scripts import teardown_srt_to_script as s2s
 
     with io.open(sub_path, encoding='utf-8-sig', errors='replace') as fh:
         raw = fh.read()
@@ -107,7 +107,7 @@ def bind_frames_to_subtitles(video_path, sub_path, out_dir):
     md_lines = [
         '# 逐句台词 1:1 画面中点绑定表（通道 B 防乱人核验表）',
         '',
-        '> 生成器：batch_prep.py V4.0.1 · 「未抽到帧」的句子严禁凭记忆补画面，须 `--grab-frame` 定点重抽后再核。',
+        ' > 生成器：吞鲸宝典逆向拆剧模块 · 「未抽到帧」的句子严禁凭记忆补画面，须 `--grab-frame` 定点重抽后再核。',
         '',
         '| 句号 | 起止时间码 | 抽帧中点秒 | 台词内容 | 绑定画面帧文件 | 画面角色与嘴型核验（张嘴对白 / 闭嘴OS） |',
         '|---|---|---|---|---|---|',
@@ -171,16 +171,16 @@ def selftest():
     assert callable(crop_subtitle_strip)
     assert callable(bind_frames_to_subtitles)
     assert sanitize_filename("瑶瑶，守好家！") == "瑶瑶守好家"
-    # V4.0.1：中点秒标签不得出现 60.00s
+    # 修复：中点秒标签不得出现 60.00s
     assert mid_sec_tag(5.5) == '00m05.50s', mid_sec_tag(5.5)
     assert mid_sec_tag(59.999) == '01m00.00s', mid_sec_tag(59.999)
     assert mid_sec_tag(65.0) == '01m05.00s', mid_sec_tag(65.0)
-    # V4.0.1 补丁回归：带 UTF-8 BOM 的字幕文件不得把首句读成乱码/丢句
+    # 回归检查：带 UTF-8 BOM 的字幕文件不得把首句读成乱码/丢句
     import tempfile
     _sd = os.path.dirname(os.path.abspath(__file__))
     if _sd not in sys.path:
         sys.path.insert(0, _sd)
-    import teardown_srt_to_script as _s2s
+    from scripts import teardown_srt_to_script as _s2s
     _bom = os.path.join(tempfile.gettempdir(), 'bp_bom_selftest.srt')
     with io.open(_bom, 'w', encoding='utf-8-sig') as _fh:
         _fh.write('1\n00:00:01,000 --> 00:00:02,000\n测试台词\n')
@@ -193,7 +193,7 @@ def selftest():
 
 
 def opt_val(argv, name, default=None, required=True):
-    """取 --name 后面的取值；缺值直接报错退出，避免 IndexError 糊一脸（V4.0.1）"""
+    """取 --name 后面的取值；缺值直接报错退出，避免 IndexError 糊一脸（吞鲸宝典逆向拆剧模块）"""
     if name not in argv:
         if required:
             print(f"错误：缺少参数 {name}")
