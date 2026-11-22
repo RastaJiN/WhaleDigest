@@ -66,7 +66,11 @@ def _validate_dialogue(text):
         errors.append("结构错误：台词 <d> 缺少闭合 </d>")
     utterances = list(_DIALOGUE_RE.finditer(text))
     speech_rows = [row for row in strip_dialogue(text).splitlines() if row.lstrip().upper().startswith("SPEECH:")]
-    if len(utterances) > 1 or len(speech_rows) != len(utterances):
+    # Silent declarations ("SPEECH: No spoken dialogue; natural breathing only.") are not real dialogue.
+    silent_rows = [row for row in speech_rows
+                   if re.search(r"\bno\s+spoken\s+(?:dialogue|line|speech)\b", row, re.I)]
+    real_rows = [row for row in speech_rows if row not in silent_rows]
+    if len(utterances) > 1 or len(real_rows) != len(utterances) or (silent_rows and utterances):
         errors.append("对白错误：每个单镜请求只允许一条独立台词，换人请拆镜")
     for row in speech_rows:
         if re.search(r"\b(?:in unison|both voices|(?:both|they) (?:speak|say|recite) together)\b", row, re.I):

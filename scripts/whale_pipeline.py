@@ -74,6 +74,7 @@ def main():
     ap.add_argument("--scene", default="酒店客房", help="主场景名")
     ap.add_argument("--lines", default="", help="台词（可选，格式 '镜号:女子A:台词' 竖线分隔）")
     ap.add_argument("--idea", default="", help="剧情核心张力描述")
+    ap.add_argument("--wardrobe-mode", default="", choices=["", "nude_all", "dressed_all"], help="可选服装状态显式覆盖：nude_all / dressed_all")
     ap.add_argument("--dry", action="store_true", help="只跑到分镜+提示词落地，不渲染")
     args = ap.parse_args()
 
@@ -160,6 +161,8 @@ def main():
         cmd.extend(["--lines", args.lines])
     if args.idea:
         cmd.extend(["--idea", args.idea])
+    if args.wardrobe_mode:
+        cmd.extend(["--wardrobe-mode", args.wardrobe_mode])
     out, rc = run(cmd)
     print(out[-2000:])
     if rc != 0:

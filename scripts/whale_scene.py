@@ -155,6 +155,18 @@ CAMS_EN_LANDSCAPE = {
     "follow_soft":    "side-oblique angle, camera tracks smoothly moving 10 cm over three seconds",
     "pan_left_right": "eye-level angle, smooth horizontal pan shifting 12 cm left-to-right to reveal the two-subject relationship",
     "track_lateral":  "lateral tracking shot gliding 15 cm side-to-side along the action axis in time with the thrust rhythm",
+    "static":         "eye-level angle, tripod locked with steady framing",
+    "static_top_90":  "top-down 90-degree overhead angle, tripod locked framing the bodies flat against the surface in horizontal composition",
+    "static_top":     "top-down overhead angle, tripod locked framing the bodies against the surface",
+}
+
+# 横屏单人特写机位措辞：避免单人镜复用双人横屏措辞造成「single subject」与「both subjects」自相矛盾
+CAMS_EN_LANDSCAPE_SOLO = {
+    "static_side":    "90-degree side profile angle, tripod locked, single subject framed against a horizontal backdrop",
+    "static_rear":    "rear-oblique angle, tripod locked, single subject seen from behind in horizontal composition",
+    "static_front":   "eye-level front angle, tripod locked with steady single-subject framing",
+    "pan_left_right": "eye-level angle, smooth horizontal pan shifting 12 cm across the single subject",
+    "push_tension":   "eye-level angle, slow lateral dolly push-in sliding forward 12 cm tightening on the single subject",
 }
 
 # ── 画幅工具函数：aspect 参数归一化 + 分辨率映射 + 字典选择 ──
@@ -716,7 +728,7 @@ def h3_frames(sec):
 
 
 def save_project_artifacts(out_dir, shots, actual_total, want_total, lines="",
-                           idea="", scene="卧室", pose_names="", aspect="9:16", scene_id=None, script_path=None, pace_driver=None, pace_overrides=None, pace=None, actor=None, chain=None, review=None):
+                           idea="", scene="卧室", pose_names="", aspect="9:16", scene_id=None, script_path=None, pace_driver=None, pace_overrides=None, pace=None, actor=None, chain=None, review=None, wardrobe_mode=""):
     """一键在项目目录落盘：分镜.md + 视频提示词.md + 批量任务.json（吞鲸 v4.0 规范，横竖屏双轨）
     aspect: '9:16' 竖屏 / '16:9' 横屏 / '1:1' 方屏，决定景别/机位/运镜/分辨率整套构图语言。
     """
@@ -801,8 +813,16 @@ def save_project_artifacts(out_dir, shots, actual_total, want_total, lines="",
     prompt_lines[1] = f"- 场景：{scene} | 总镜数：{len(shots)} 镜 | 总帧数：{total_frames_sum}帧 | 画幅：{orient_label}"
 
     # 单调服装状态机：若前序为文戏调度/对峙肢体/挑逗或脱衣，初始处于穿衣状态；一旦经过脱衣或进入实质前戏/肉戏后单向锁死为素身
+    # wardrobe_mode 显式覆盖（"nude_all" / "dressed_all"）用于整段同一服装状态；留空则沿用自动状态机
+    wardrobe_mode = (wardrobe_mode or "").strip()
+    if wardrobe_mode not in ("", "nude_all", "dressed_all"):
+        raise ValueError(f"Unsupported wardrobe_mode: {wardrobe_mode!r}")
     is_nude_state = True
     if shots and (shots[0].get("pose", "") in STAGING_IDS or "undress" in shots[0].get("pose", "")):
+        is_nude_state = False
+    if wardrobe_mode == "nude_all":
+        is_nude_state = True
+    elif wardrobe_mode == "dressed_all":
         is_nude_state = False
 
     for i, s in enumerate(shots, 1):
@@ -812,7 +832,9 @@ def save_project_artifacts(out_dir, shots, actual_total, want_total, lines="",
         cam_desc_en = _cams_en.get(s["cam"], _cams_en["push_tension"])
 
         first_p = s.get("pose", "").split("->")[0]
-        if first_p not in STAGING_IDS and "undress" not in first_p:
+        if wardrobe_mode in ("nude_all", "dressed_all"):
+            is_nude_state = (wardrobe_mode == "nude_all")
+        elif first_p not in STAGING_IDS and "undress" not in first_p:
             is_nude_state = True
         elif first_p == "fix_attire":
             is_nude_state = False
@@ -835,6 +857,8 @@ def save_project_artifacts(out_dir, shots, actual_total, want_total, lines="",
         tier_label, ref_keys, ref_imgs, lora_w, spatial_zone = resolve_slot_refs(
             s["size"], s["pose"], is_nude_state=is_nude_state, asset_dir=asset_dir
         )
+        if landscape and tier_label in ("B_solo_female", "B_solo_male") and s["cam"] in CAMS_EN_LANDSCAPE_SOLO:
+            cam_desc_en = CAMS_EN_LANDSCAPE_SOLO[s["cam"]]
         if len(s.get('action_steps', ())) > 1:
             # Slot membership is the union of visible performers over the take,
             # not the cast of its final step. Keep the opening framing/camera.
@@ -863,7 +887,8 @@ def save_project_artifacts(out_dir, shots, actual_total, want_total, lines="",
             s, i - 1, len(shots), s["dur"], size_desc_en, cam_desc_en,
             lines=shot_line, speaker=shot_speaker, idea=idea, scene=s["blocking_state"]["location"], pose_names=pose_names,
             emotion=auto_emotion, voiceover=is_voiceover_cue(explicit_emo),
-            tier=tier_label, has_audio_refs=False, aspect=normalize_aspect(aspect)
+            tier=tier_label, has_audio_refs=False, aspect=normalize_aspect(aspect),
+            nudity=is_nude_state
         )
 
         extra_tags = []
@@ -1011,7 +1036,7 @@ def save_project_artifacts(out_dir, shots, actual_total, want_total, lines="",
 
 
 def print_table(shots, actual_total, want_total, lines="", idea="", scene="卧室",
-                pose_names="", emit_prompts=True, aspect="9:16", scene_id=None, script_path=None, pace_driver=None, pace_overrides=None, pace=None, actor=None):
+                pose_names="", emit_prompts=True, aspect="9:16", scene_id=None, script_path=None, pace_driver=None, pace_overrides=None, pace=None, actor=None, wardrobe_mode=""):
     blocking.prepare(shots, scene_name=scene, script_path=script_path, scene_id=scene_id)
     shots[:] = pacing.apply(shots, pace_driver, actor=actor, pace=pace, overrides=pace_overrides)
     line_map, actual_total = prepare_dialogue_shots(shots, lines, want_total)
@@ -1040,7 +1065,24 @@ def print_table(shots, actual_total, want_total, lines="", idea="", scene="卧�
     print("=" * 100)
     print("=== 逐镜完整送模提示词（R1~R12 全肯定语法，可直接贴进 H3）===")
     print("=" * 100)
+    wardrobe_mode = (wardrobe_mode or "").strip()
+    if wardrobe_mode not in ("", "nude_all", "dressed_all"):
+        raise ValueError(f"Unsupported wardrobe_mode: {wardrobe_mode!r}")
+    is_nude_state = True
+    if shots and (shots[0].get("pose", "") in STAGING_IDS or "undress" in shots[0].get("pose", "")):
+        is_nude_state = False
+    if wardrobe_mode == "nude_all":
+        is_nude_state = True
+    elif wardrobe_mode == "dressed_all":
+        is_nude_state = False
     for i, s in enumerate(shots, 1):
+        first_p = s.get("pose", "").split("->")[0]
+        if wardrobe_mode in ("nude_all", "dressed_all"):
+            is_nude_state = (wardrobe_mode == "nude_all")
+        elif first_p not in STAGING_IDS and "undress" not in first_p:
+            is_nude_state = True
+        elif first_p == "fix_attire":
+            is_nude_state = False
         size_desc_en = pick_dict(is_landscape(aspect), SHOT_SIZES_EN_LANDSCAPE, SHOT_SIZES_EN)[s["size"]]
         cam_dict = pick_dict(is_landscape(aspect), CAMS_EN_LANDSCAPE, CAMS_EN)
         cam_desc_en = cam_dict.get(s["cam"], cam_dict["push_tension"])
@@ -1055,12 +1097,14 @@ def print_table(shots, actual_total, want_total, lines="", idea="", scene="卧�
             elif s["dur"] >= 2.0:
                 shot_speaker = spk
                 shot_line = txt
-        tier_label, _, _, _, _ = resolve_slot_refs(s["size"], s["pose"], is_nude_state=True)
+        tier_label, _, _, _, _ = resolve_slot_refs(s["size"], s["pose"], is_nude_state=is_nude_state)
+        if is_landscape(aspect) and tier_label in ("B_solo_female", "B_solo_male") and s["cam"] in CAMS_EN_LANDSCAPE_SOLO:
+            cam_desc_en = CAMS_EN_LANDSCAPE_SOLO[s["cam"]]
         prompt = single_shot_prompt(
             s, i - 1, len(shots), s["dur"], size_desc_en, cam_desc_en,
             lines=shot_line, speaker=shot_speaker, idea=idea, scene=scene, pose_names=pose_names,
             tier=tier_label, emotion=explicit_emo or "default", voiceover=is_voiceover_cue(explicit_emo),
-            aspect=normalize_aspect(aspect)
+            aspect=normalize_aspect(aspect), nudity=is_nude_state
         )
         print(f"\n{'─' * 100}")
         print(f"### SHOT {i:02d}  {s['dur']}s ({s['t0']}-{s['t1']}s)  "
@@ -1085,6 +1129,7 @@ def main():
     ap.add_argument("--pace-overrides", help="每镜 JSON，如 [{\"shot\":2,\"actor\":\"S2\",\"pace\":[\"slow\",\"fast\"]}]")
     ap.add_argument("--out-dir", default="", help="可选：一键将 分镜.md + 视频提示词.md + 批量任务.json 落盘至指定项目目录")
     ap.add_argument("--aspect", default="9:16", help="画幅：9:16 竖屏(默认) / 16:9 横屏 / 1:1 方屏；决定景别/机位/运镜/分辨率整套构图语言")
+    ap.add_argument("--wardrobe-mode", default="", choices=["", "nude_all", "dressed_all"], help="可选服装状态显式覆盖：nude_all 全程裸体 / dressed_all 全程穿衣；留空自动推断")
     ap.add_argument("--table-only", action="store_true", help="只出拆镜表，不出提示词")
     ap.add_argument("--list-poses", action="store_true")
     args = ap.parse_args()
@@ -1135,11 +1180,13 @@ def main():
                                lines=args.lines, idea=args.idea, scene=args.scene, pose_names=pose_names,
                                aspect=args.aspect, scene_id=args.scene_id, script_path=args.script_file,
                                pace_driver=args.pace_driver, pace_overrides=pacing.parse_overrides(args.pace_overrides),
-                               pace=args.pace, actor=args.motion_actor, chain=chain, review=review)
+                               pace=args.pace, actor=args.motion_actor, chain=chain, review=review,
+                               wardrobe_mode=args.wardrobe_mode)
     else:
         print_table(shots, actual, args.total, lines=args.lines, idea=args.idea,
                     scene=args.scene, pose_names=pose_names,
-                    emit_prompts=not args.table_only, aspect=args.aspect, scene_id=args.scene_id, script_path=args.script_file)
+                    emit_prompts=not args.table_only, aspect=args.aspect, scene_id=args.scene_id, script_path=args.script_file,
+                    wardrobe_mode=args.wardrobe_mode)
 
 
 if __name__ == "__main__":

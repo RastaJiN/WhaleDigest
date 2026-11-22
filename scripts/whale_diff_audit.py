@@ -165,8 +165,9 @@ def audit_project(project_dir):
             if "HEADS, FACES, AND UPPER TORSO ARE STRICTLY OUT OF FRAME" in prompt and "off-screen voiceover" not in prompt:
                 report["violations"].append(f"镜头 {s.get('id')} 存在画内对白但误锁了 HEADS OUT OF FRAME（无头讲话冲突）！")
             spoken_dialogues.append((s.get("id"), line_text))
-            turn = s.get('dialogue') or {}
-            source_turns.append((turn.get('line'),turn.get('index')) if turn.get('text')==line_text else None)
+            raw_turn = s.get('dialogue')
+            turn = raw_turn if isinstance(raw_turn, dict) else {}
+            source_turns.append((turn.get('line'), turn.get('index')) if turn.get('text') == line_text else None)
 
         if "->" in pose and "LOWER BODY AND GENITALIA STRICTLY OUT OF FRAME" in prompt:
             report["violations"].append(f"镜头 {s.get('id')} ({pose}) 属于换体位转场镜，但误锁了 LOWER BODY OUT OF FRAME！")

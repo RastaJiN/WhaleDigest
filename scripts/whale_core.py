@@ -188,6 +188,29 @@ EMOTION_BODY_ACTIONS = {
     "default":      "subtle weight shift between the feet, shoulders settling, hands finding a natural rest, chest rising with a measured breath",
 }
 
+# 卧姿/贴身床戏情绪动作与面部变体：避免仰卧或贴身状态下出现「看地板/手叠膝上/退半步」等站姿冲突词
+EMOTION_BODY_ACTIONS_SUPINE = {
+    "submission":   "chin tucking against the support surface, hands drawn in tight against her chest or gripping the bedding beside her, shoulders curling inward as her body yields under the weight above",
+    "inhibition":   "body pressing back into the support surface, one hand rising to guard her collarbone, the other gripping the surface edge with a held breath",
+    "provocation":  "chin lifting from the support surface to hold the gaze, fingers digging into the surface beside her, chest rising on a deliberate slow breath",
+    "surge":        "torso lifting slightly off the support surface on a sharp intake, palms bracing flat on the surface, hips pressing upward into the contact",
+    "ecstasy":      "spine arching back against the support surface, head tilting back, fingers gripping the surface or partner's back, hips meeting the steady rhythm",
+    "aftermath":    "body going slack into the support surface as tension drains, arms resting open at her sides, gaze going soft and unfocused",
+    "forbearance":  "jaw locking as the throat bobs once, palms pressing flat into the surface beneath her, shoulders held taut",
+    "default":      "weight settling into the support surface, shoulders relaxing into the pad, hands resting naturally against the surface, chest rising with a measured breath",
+}
+
+EMOTION_MUSCLE_CUES_SUPINE = {
+    "submission":   "yielding in quiet submission; eyelashes trembling with gaze angled sideways across the support surface and lower lip pressed lightly between teeth, settling within 1.5 seconds",
+    "inhibition":   "guarded in hesitant restraint; fingertips tightening against the support surface and gaze shifting between eyes and lips with a 0.5-second pause, settling within 1.5 seconds",
+    "provocation":  "charged with deliberate provocation; chin lifting off the support surface to hold eye contact with a slow deliberate blink while collarbones rise, holding within 1.5 seconds",
+    "ecstasy":      "swept into breathless ecstasy; pupils dilating with head tilting back into the support as neck tendons tense and lips part on a sharp breath, holding within 1.5 seconds",
+    "surge":        "locked in sudden emotional surge; gaze locking upward with deep ribcage expansion and tense jaw, settling within 1.5 seconds",
+    "aftermath":    "drifting in exhausted aftermath; shoulders softening into the support surface as chest breathing slows and lips part in a quiet exhale, settling within 1.5 seconds",
+    "forbearance":  "straining in silent forbearance; jaw clenching tight with throat bobbing once while fingers press firmly into the surface, settling within 1.5 seconds",
+    "default":      "focused in close presence; jaw muscles tightening with visible chest breathing and natural head micro-shifts against the support, settling within 1.5 seconds",
+}
+
 # 去AI味翻译腔黑名单（用于门禁与顾问自动拦截书面化/翻译腔废话台词）
 AI_CLICHE_PATTERNS = [
     r"你怎么能如此",
@@ -417,13 +440,16 @@ def wrap_action_arc(action_text):
             f"the movement settles into a clear held end-state with weight fully transferred and hands finding their finish position")
 
 
-def build_soundscape_en(scene_name, is_staging=False):
+def build_soundscape_en(scene_name, is_staging=False, nude_audio=False):
     sc_id = detect_scene_id(scene_name)
     loc = SURFACE_PROFILES.get(sc_id, SURFACE_PROFILES["bed"])
     surf_sfx = loc.get("sfx", "subtle surface resonance")
-    if is_staging:
+    if is_staging and not nude_audio:
         return (f"Quiet interior room tone continues throughout. Crisp fabric rustle, measured footsteps, "
                 f"tense breathing, and subtle {surf_sfx}.")
+    if is_staging and nude_audio:
+        return (f"Quiet intimate room tone continues throughout. Close heavy breathing, soft bare skin contact, "
+                f"and subtle {surf_sfx}.")
     return (f"Quiet room tone continues throughout. Rhythmic skin-on-skin collision slaps, "
             f"viscous lubrication friction, heavy ragged breathing, and subtle {surf_sfx}.")
 
@@ -436,6 +462,16 @@ def load_poses():
 def load_recipes():
     with open(os.path.join(REF, "transition_recipes.json"), encoding="utf-8") as f:
         return json.load(f)
+
+
+# 全肯定裸体锁：H3 在 CFG=1.0 下对否定词+衣物词根敏感，只写纯粹肯定的裸肌物理事实
+NUDITY_F = " She is completely unclothed from first frame to last, with continuous bare skin across her shoulders, chest, torso, and hips."
+NUDITY_M = " He is completely unclothed from first frame to last, with continuous bare skin across his shoulders, chest, torso, and hips."
+NUDITY_RETENTION_F = " Completely unclothed bare-skin continuity preserved from first frame to last."
+NUDITY_RETENTION_M = " Completely unclothed bare-skin continuity preserved from first frame to last."
+NUDITY_LOCK_SOLO_F = "Nudity continuity: <Subject 1> remains completely unclothed from first frame to last with continuous bare skin across every visible body area."
+NUDITY_LOCK_SOLO_M = "Nudity continuity: <Subject 2> remains completely unclothed from first frame to last with continuous bare skin across every visible body area."
+NUDITY_LOCK_BOTH = "Nudity continuity: both <Subject 1> and <Subject 2> remain completely unclothed from first frame to last with continuous bare skin across every visible body area."
 
 
 def build_fullref_header(
@@ -458,6 +494,7 @@ def build_fullref_header(
     prop_ref="",
     prop_desc="key physical item anchored in <Picture 4>, preserving its exact printed markings, shape, and surface texture",
     has_audio_refs=False,
+    nudity=False,
 ):
     """
     吞鲸 v4.0 权威头部装配：
@@ -508,17 +545,17 @@ def build_fullref_header(
     if tier == "C_empty_cut":
         parts.append(f"<Subject 3> is the pure architectural {scene_en} environment anchored in <Picture 3>{props_clause} and ambient lighting.")
     elif tier == "B_solo_female":
-        parts.append(f"<Subject 1> is the {female_desc}.")
+        parts.append(f"<Subject 1> is the {female_desc}." + (NUDITY_F if (nudity and not is_undress) else ""))
         parts.append(f"<Subject 3> is the {scene_en} support surface anchored in <Picture 3>{props_clause}.")
     elif tier == "B_solo_male":
-        parts.append(f"<Subject 2> is the {male_desc}.")
+        parts.append(f"<Subject 2> is the {male_desc}." + (NUDITY_M if (nudity and not is_undress) else ""))
         parts.append(f"<Subject 3> is the {scene_en} support surface anchored in <Picture 3>{props_clause}.")
     else:
         if is_undress:
             parts.append(f"<Subject 1> is the {female_desc}; her outer garment unfastens and slides down during this take.")
         else:
-            parts.append(f"<Subject 1> is the {female_desc}.")
-        parts.append(f"<Subject 2> is the {male_desc}.")
+            parts.append(f"<Subject 1> is the {female_desc}." + (NUDITY_F if nudity else ""))
+        parts.append(f"<Subject 2> is the {male_desc}." + (NUDITY_M if (nudity and not is_undress) else ""))
         parts.append(f"<Subject 3> is the {scene_en} environment anchored in <Picture 3>{props_clause} and ambient lighting.")
 
     if prop_ref:
@@ -545,15 +582,15 @@ def build_fullref_header(
     # 4. retention_analysis
     parts.append("retention_analysis:")
     if tier == "B_solo_female":
-        parts.append("<Subject 1>: fully_preserved - facial identity, exact hairstyle, body anatomy, and skin texture are strictly locked to <Picture 1>.")
+        parts.append("<Subject 1>: fully_preserved - facial identity, exact hairstyle, body anatomy, and skin texture are strictly locked to <Picture 1>." + (NUDITY_RETENTION_F if (nudity and not is_undress) else ""))
     elif tier == "B_solo_male":
-        parts.append("<Subject 2>: fully_preserved - masculine facial identity, physique, and skin tone are strictly locked to <Picture 2>.")
+        parts.append("<Subject 2>: fully_preserved - masculine facial identity, physique, and skin tone are strictly locked to <Picture 2>." + (NUDITY_RETENTION_M if (nudity and not is_undress) else ""))
     elif tier != "C_empty_cut":
         if is_undress:
             parts.append("<Subject 1>: partially_preserved - facial features, hairstyle, and body anatomy fully preserved from <Picture 1>; clothing transitions smoothly.")
         else:
-            parts.append("<Subject 1>: fully_preserved - facial identity, exact hairstyle, body anatomy, and skin texture are strictly locked to <Picture 1>.")
-        parts.append("<Subject 2>: fully_preserved - masculine facial identity, physique, and skin tone are strictly locked to <Picture 2>.")
+            parts.append("<Subject 1>: fully_preserved - facial identity, exact hairstyle, body anatomy, and skin texture are strictly locked to <Picture 1>." + (NUDITY_RETENTION_F if nudity else ""))
+        parts.append("<Subject 2>: fully_preserved - masculine facial identity, physique, and skin tone are strictly locked to <Picture 2>." + (NUDITY_RETENTION_M if (nudity and not is_undress) else ""))
     parts.append(f"<Subject 3>: fully_preserved for surface texture and lighting direction from <Picture 3>; weak_reference for exact camera framing.")
     if prop_ref:
         parts.append("<Subject 4>: fully_preserved - exact object geometry, surface markings, and material texture are strictly locked to <Picture 4>.")
@@ -634,9 +671,7 @@ def sanitize_positive_only(text):
         (r"\bwithout cutting\b", "in one continuous unbroken take"),
         (r"\bno hard cuts\b", "continuous unbroken motion"),
         (r"\bwithout surface reflection\b", "with gentle matte light absorption"),
-        (r"\bnon-greasy complexion\b", "dry velvet complexion"),
-        (r"\blight sweat\b", "dry matte skin texture"),
-        (r"\bsweaty skin\b", "matte velvet skin"),
+        (r"\bnon-greasy complexion\b", "skin with a natural matte finish under soft light"),
         (r"\bthe\s+the\b", "the"),
         (r"\bzero hard directional light\b", "even ambient illumination"),
         (r"\bunobstructed\b", "clean"),
@@ -694,7 +729,7 @@ def _speech_lock(actor, words, dur, tier, voiceover):
 def build_shot_description(shot, index, total_shots, dur, size_desc, cam_desc,
                            lines="", speaker="女子A", scene="hotel suite",
                            emotion="default", voiceover=False, hold_last_second=False,
-                           female_screen_side=None, tier="A_two_shot"):
+                           female_screen_side=None, tier="A_two_shot", nudity=False):
     """
     编译单镜画面与独立 SPEECH 行（100% 对齐 R1~R12 全肯定语法 + 正反打视线互补锁 + 先静后动三段式运镜）
     """
@@ -817,15 +852,19 @@ def build_shot_description(shot, index, total_shots, dur, size_desc, cam_desc,
 
     emo_key_body = resolve_emotion_key(emotion, lines, fallback="default")
     emo_cue_extra = ""
-    body_action = EMOTION_BODY_ACTIONS.get(emo_key_body, EMOTION_BODY_ACTIONS["default"])
+    _supine_ctx = (first_p in SUPINE_POSES) or (bool(nudity) and not is_undress and first_p in ("srs_female", "srs_male", "outro_solo"))
+    _body_tbl = EMOTION_BODY_ACTIONS_SUPINE if _supine_ctx else EMOTION_BODY_ACTIONS
+    _face_tbl = EMOTION_MUSCLE_CUES_SUPINE if _supine_ctx else EMOTION_MUSCLE_CUES
+    body_action = _body_tbl.get(emo_key_body, _body_tbl["default"])
+    facial_cue = _face_tbl.get(emo_key_body, _face_tbl["default"])
     # 面部表情 + 身体决断动作双通道（治站桩木讷：脸和身一起演，不只脸动）
     # 有台词无台词都要加——有台词时角色边说话边演，更需要身体动作
     if shot.get("size") in ("face", "cu") or first_p in ("srs_male", "srs_female", "blocking_2s", "outro_solo"):
-        emo_cue_extra = (f" Facial performance: {EMOTION_MUSCLE_CUES.get(emo_key_body, EMOTION_MUSCLE_CUES['default'])} "
+        emo_cue_extra = (f" Facial performance: {facial_cue} "
                          f"Body action: {body_action}.")
     # 肉戏高潮/泄洪镜也强制加身体表演（不是你之前要的"肉戏要表演、要反馈，不是单纯抽插"）
     elif first_p in FINISH_IDS or is_penetration:
-        emo_cue_extra = (f" Facial performance: {EMOTION_MUSCLE_CUES.get(emo_key_body, EMOTION_MUSCLE_CUES['default'])} "
+        emo_cue_extra = (f" Facial performance: {facial_cue} "
                          f"Body action: {body_action}.")
     if plan and (plan['action'] or first_p in DIALOGUE):
         # Generic body beats may stand a seated actor up or occupy the hand holding a prop.
@@ -842,7 +881,7 @@ def build_shot_description(shot, index, total_shots, dur, size_desc, cam_desc,
         body_text += " (Anatomical lock: lips gently parted 5 mm with subtle contact and natural lip geometry; his left hand is the single hand in frame)."
 
     if is_penetration and not shot.get("motion_override") and shot.get("size") not in ("face", "cu"):
-        body_text += " Snug anatomical junction between penis and vaginal entrance, male anatomy fully seated inside the female body with deep pelvic seal, rhythmic piston strokes clearly readable with elastic skin recoil and no part ever emerging detached."
+        body_text += " Sealed pelvic junction: fully seated with the lower abdomen pressed flush against her, the contact line staying continuous and physically cohesive with natural soft-tissue compression and elastic recoil."
 
     tail = ""
     if hold_last_second or first_p == "outro_solo":
@@ -871,7 +910,7 @@ def single_shot_prompt(shot, index, total_shots, dur, size_desc, cam_desc,
                        male_desc="mature man anchored in <Picture 2>, preserving his exact masculine facial identity, hairstyle, skin tone, and muscular build",
                        scene_props="", prop_ref="", prop_desc="key physical item anchored in <Picture 4>, preserving its exact printed markings, shape, and surface texture",
                        emotion="default", voiceover=False, hold_last_second=False,
-                       tier="A_two_shot", has_audio_refs=False, aspect="9:16"):
+                       tier="A_two_shot", has_audio_refs=False, aspect="9:16", nudity=False):
     """
     吞鲸 v4.0 对外唯一装配接口：
     - 输出纯净正向送模提示词（不含 === NEGATIVE ===，杜绝正向反噬）
@@ -903,20 +942,30 @@ def single_shot_prompt(shot, index, total_shots, dur, size_desc, cam_desc,
         tier=tier, shot_size=shot_size,
         female_desc=female_desc, male_desc=male_desc, scene_props=scene_props,
         prop_ref=eff_prop, prop_desc=prop_desc,
-        has_audio_refs=has_audio_refs
+        has_audio_refs=has_audio_refs, nudity=nudity
     )
 
     shot_body = build_shot_description(
         shot, index, total_shots, dur, size_desc, cam_desc,
         lines=lines, speaker=speaker, scene=scene,
         emotion=emotion, voiceover=voiceover, hold_last_second=hold_last_second,
-        female_screen_side=female_screen_side, tier=tier
+        female_screen_side=female_screen_side, tier=tier, nudity=nudity
     )
 
     parts = _official_ref2va_header(header)
     parts.append("detailed_description:")
+    if nudity and not is_undress and tier != "C_empty_cut":
+        if tier == "B_solo_female":
+            parts.append(NUDITY_LOCK_SOLO_F)
+        elif tier == "B_solo_male":
+            parts.append(NUDITY_LOCK_SOLO_M)
+        else:
+            parts.append(NUDITY_LOCK_BOTH)
     parts.append(shot_body)
-    sound = 'Room tone from the established location.' if plan and is_staging else build_soundscape_en(scene, is_staging=is_staging)
+    nude_audio = bool(nudity and not is_undress)
+    sound = ('Room tone from the established location.'
+             if (plan and is_staging and not nude_audio)
+             else build_soundscape_en(scene, is_staging=is_staging, nude_audio=nude_audio))
     parts.append("overall_soundscape: " + sound)
     parts.append("non_diegetic_music: N/A")
     return "\n".join(parts)
@@ -937,5 +986,5 @@ def footer_block(scene="hotel suite"):
 def insert_hint(pose_id=""):
     first_p = (pose_id or "").split("->")[0]
     if first_p not in FOREPLAY and first_p not in ORAL_ONLY and first_p not in FINISH_IDS and first_p not in STAGING_IDS and "->" not in (pose_id or ""):
-        return " Snug anatomical junction between penis and vaginal entrance, rhythmic piston strokes of 10 cm clearly readable."
+        return " Sealed pelvic junction: fully seated with the lower abdomen pressed flush, the contact line continuous and physically cohesive."
     return ""
