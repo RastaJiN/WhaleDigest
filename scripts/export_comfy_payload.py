@@ -36,7 +36,7 @@ def check_comfy_health():
 
 
 from tunjing_task_source import load_task_source, require_source_audit, source_record, validate_batch_metadata
-from tunjing_audio_contract import resolve_audio_contract
+from tunjing_compiler import lint_task_prompt
 
 def verify_project_gates(project_dir):
     status_file = os.path.join(project_dir, ".tunjing_status.json")
@@ -68,10 +68,9 @@ def verify_batch_json(project_dir):
 
     total_frames = 0
     for i, s in enumerate(shots, 1):
-        try:
-            resolve_audio_contract(s, data)
-        except ValueError as exc:
-            return False, f"镜头 {i}: {exc}"
+        errors, _ = lint_task_prompt(s, data)
+        if errors:
+            return False, f"镜头 {i}: " + "; ".join(errors)
         frames = s.get("frames", 0)
         if type(frames) is not int or not 39 <= frames <= 294:
             return False, f"镜头 {i} frames 必须是 39~294 的整数"
@@ -116,6 +115,7 @@ def verify_batch_json(project_dir):
 def main():
     ap = argparse.ArgumentParser(description="吞鲸 v4.0 ComfyUI 渲染提交与批量任务核验器")
     ap.add_argument("project_dir", nargs="?", default="", help="项目目录路径（可选）")
+    ap.add_argument('--offline', action='store_true', help='只验门禁和任务包，不探测 ComfyUI 服务')
     args = ap.parse_args()
 
     print("=" * 65)
@@ -141,7 +141,7 @@ def main():
     if args.project_dir and source_record(args.project_dir) != initial_source:
         print("[X] 任务在核验期间改变，请重新核验")
         sys.exit(1)
-    online = check_comfy_health()
+    online = not args.offline and check_comfy_health()
     if online:
         print("\n[OK] 本机 ComfyUI 在线，可直接将项目目录下的 `批量任务.json` 交由 ComfyUI H3 节点队列批量渲染！")
     else:

@@ -13,8 +13,8 @@
    - 自动将桌面、床沿、吧台、窗台等承托物锚定在人体固定部位高度（如腰带高、膝盖高、胯部高），彻底消除跨镜家具高度乱跳
 3. 特写与微距头部自动瘦身裁剪（Macro/Face Header Slimming）：
    - 切入 `macro` 或 `face` 镜头时，自动裁剪掉头部多余的房间全景与全身比例描述，防止模型强行把极特写拉宽为中景
-4. 正反打屏幕左右方向与俯仰视线互补锁（Complementary Eyeline & Angle Lock）：
-   - `srs_male`（男正打）锁定画面左侧向右下凝视，`srs_female`（女反打）锁定画面右侧向左上迎视，剪辑视线 100% 严丝合缝对撞
+4. 正反打从本场的分镜决定取景、屏幕方向与视线：
+   - `srs_male` / `srs_female` 只指定入画角色；画内位置与注视目标随本场调度，不由性别或说话顺序决定。
 5. 黄金情绪反应公式（1个明确情绪点名 + 2处可见解剖泄露 + 1.5秒内落定保持）
 6. 先静后动三段式运镜（0.0s–1.0s 起幅稳固定格 ➔ 中段平滑运镜 ➔ 尾段 0.8s 稳固落幅）
 7. H3 真实语速预算锁（4.1字/秒常速 + 扣除开口前延迟与尾段反应窗口）
@@ -449,7 +449,7 @@ def build_fullref_header(
     is_rear=False,
     is_supine=False,
     is_oral=False,
-    female_screen_side="left",
+    female_screen_side=None,
     tier="A_two_shot",
     shot_size="mcu",
     female_desc="young woman anchored in <Picture 1>, preserving her exact facial structure, hairstyle, skin tone, and anatomical proportions",
@@ -477,7 +477,11 @@ def build_fullref_header(
     }
     scene_en = scene if not re.search(r"[一-鿿]", str(scene)) else scene_en_map.get(sc_id, "interior room")
     is_tight_crop = shot_size in ("macro", "face", "hip", "cu")
-    if is_tight_crop:
+    if is_staging:
+        # A location reference establishes geography, not an actor's furniture or pose.
+        scene_en = 'established scene' if re.search(r'[一-鿿]', str(scene)) else scene
+        props_clause = ', matching the visible setting in the scene reference'
+    elif is_tight_crop:
         # 特写/微距/臀胯交合镜头部自动瘦身：只保留局部接触材质与浅景深锚定，彻底剔除全景大房间与全身陈设，杜绝把微距拉宽成中景
         props_clause = f" showing close-range {surf['pad']} texture in 20% shallow depth-of-field"
     else:
@@ -520,7 +524,9 @@ def build_fullref_header(
     if prop_ref:
         parts.append(f"<Subject 4> is the {prop_desc}.")
     if has_audio_refs and tier != "C_empty_cut":
-        parts.append("Audio timbre anchors: <Audio 1> locks the vocal timbre of <Subject 1> (S1); <Audio 2> locks the vocal timbre of <Subject 2> (S2).")
+        audible = (1,) if tier == "B_solo_female" else (2,) if tier == "B_solo_male" else (1, 2)
+        parts.append("Audio timbre anchors: " + "; ".join(
+            f"<Audio {n}> anchors the vocal timbre of <Subject {n}> (S{n})" for n in audible) + ".")
     parts.append("")
 
     reference_mode = "reference generation + audio reference" if has_audio_refs else "reference generation"
@@ -571,7 +577,7 @@ def build_fullref_header(
     elif is_oral:
         parts.append("Consistency: Keep the same faces, body proportions, skin tone, hairstyle, and anatomical scale throughout. "
                      "Two adults in frame. <Subject 1> is positioned between the parted thighs of <Subject 2>, kneeling at his lap level in locked close oral alignment.")
-    else:
+    elif female_screen_side in ("left", "right"):
         left_char = "<Subject 1>" if female_screen_side == "left" else "<Subject 2>"
         right_char = "<Subject 2>" if female_screen_side == "left" else "<Subject 1>"
         parts.append("Consistency: Keep the same faces, body proportions, skin tone, hairstyle, and anatomical scale throughout. "
@@ -656,20 +662,39 @@ def format_segmented_camera_en(cam_desc, dur, shot_size=""):
     return f"0.00s to 1.00s holds steady locking the initial posture, then from 1.00s to {t_move_end:.2f}s {cam_desc}, holding steady for the final 0.80s"
 
 
-def _dialogue_blocking(shot):
-    """为文戏原语生成站位描述（隔桌/隔门/贴墙/并排），返回 (类型, 英文站位描述)"""
-    try:
-        from tunjing_dialogue import build_blocking_lock
-    except ImportError:
-        return "隔桌", "both characters face each other across a table positioned between them"
-    scene_hint = " ".join(str(shot.get(k, "")) for k in ("text", "text_en", "pose_zh", "handoff"))
-    return build_blocking_lock(scene_hint, "")
+def resolve_speaker(speaker_raw):
+    """Resolve a whole cast label; never guess a role from a substring or a name."""
+    key = (speaker_raw or "").strip().casefold()
+    if key in {"女子a", "女主", "女方", "女", "女人", "s1", "subject 1", "<subject 1>", "female"}:
+        return 1
+    if key in {"男子a", "男主", "男方", "男", "男人", "s2", "subject 2", "<subject 2>", "male"}:
+        return 2
+    raise ValueError(f"未识别说话人 {speaker_raw!r}；请指定女子A/S1 或男子A/S2")
+
+
+def _speech_lock(actor, words, dur, tier, voiceover):
+    start = min(DIALOGUE_LEAD_SECONDS, max(0.0, dur - DIALOGUE_TAIL_SECONDS))
+    stop = max(start, dur - DIALOGUE_TAIL_SECONDS)
+    mode = " in an off-screen voiceover" if voiceover else ""
+    subject = f"<Subject {actor}> (S{actor})"
+    solo = {"B_solo_female": 1, "B_solo_male": 2}.get(tier)
+    if voiceover and (tier == "C_empty_cut" or (solo is not None and actor != solo)):
+        # Name the audio role, not a visual Subject missing from this crop.
+        subject = f"the narrator (voice S{actor})"
+    if voiceover:
+        reaction = " All visible lips remain closed." if tier != "C_empty_cut" else ""
+    elif tier.startswith("A_two_shot"):
+        reaction = f" <Subject {3 - actor}> listens silently with lips closed."
+    else:
+        reaction = ""
+    return (f"\nSPEECH: From {start:.2f}s to {stop:.2f}s, only {subject} says{mode}: "
+            f"<d>[Chinese]{words}</d>.{reaction}")
 
 
 def build_shot_description(shot, index, total_shots, dur, size_desc, cam_desc,
                            lines="", speaker="女子A", scene="hotel suite",
                            emotion="default", voiceover=False, hold_last_second=False,
-                           female_screen_side="left", tier="A_two_shot"):
+                           female_screen_side=None, tier="A_two_shot"):
     """
     编译单镜画面与独立 SPEECH 行（100% 对齐 R1~R12 全肯定语法 + 正反打视线互补锁 + 先静后动三段式运镜）
     """
@@ -680,24 +705,25 @@ def build_shot_description(shot, index, total_shots, dur, size_desc, cam_desc,
     is_staging = first_p in STAGING_IDS
 
     is_oral = first_p in ORAL_ONLY or "口交" in p_zh or "深喉" in p_zh
-    is_penetration = (first_p not in FOREPLAY and first_p not in ORAL_ONLY and first_p not in FINISH_IDS
+    from tunjing_solo import PROP_IDS
+    is_penetration = (first_p not in PROP_IDS and first_p not in FOREPLAY and first_p not in ORAL_ONLY and first_p not in FINISH_IDS
                       and not is_staging and not is_transition)
     is_undress = "undress" in first_p
 
-    # 防呆熔断 0（字幕物理根因·最高优先级）：speaker 只认引擎原生命名，含真人名/无性别字一律强制修正
-    #   H3 判定男女说话人只靠 is_female_spk = ("女" in speaker or "S1" in speaker or "Subject 1" in speaker)
-    #   speaker='唐曼' 不含「女」→ 判成男声 → 画外音+闭唇锁 → 嘴不能动 → 台词汉字被画成字幕。
-    #   这是 SHOT-003/005 反复出字的物理根。此处把 speaker 强制归一，任何真人名/异常值都敲回原生命名，杜绝再犯。
-    REAL_NAME_BLACKLIST = {"唐曼", "陆骁", "沈峥", "许宁"}
-    _spk_raw = (speaker or "").strip()
-    if _spk_raw in REAL_NAME_BLACKLIST or (not any(ch in _spk_raw for ch in ("女", "男", "S1", "S2", "Subject"))):
-        # 真人名或缺失性别字的任何 speaker，一律按当前镜头主体敲回原生命名，绝不带着真人名往下走
-        speaker = "女子A" if first_p != "srs_male" else "男子A"
-
-    # 防呆熔断 1：若交合微距镜 (hip/macro) 或空镜/道具镜带了台词，自动转为 off-screen voiceover 画外音
-    effective_vo = bool(voiceover)
-    if lines and (shot.get("size") in ("hip", "macro") or first_p in ("env_establish", "prop_insert", "cut_insert")):
-        effective_vo = True
+    actor = resolve_speaker(speaker) if lines else None
+    from tunjing_blocking import DIALOGUE, RELATIONS, neutral_action, visible_notes
+    plan = shot.get('blocking_state')
+    if female_screen_side not in (None, 'left', 'right'):
+        raise ValueError('invalid screen-side decision')
+    male_side = {'left':'right', 'right':'left'}.get(female_screen_side)
+    effective_vo = bool(voiceover) or (bool(lines) and (
+        shot.get("size") in ("hip", "macro") or (is_oral or first_p == "cum_face") and actor == 1
+        or first_p in ("env_establish", "prop_insert", "cut_insert")))
+    visible = {"srs_male": 2, "srs_female": 1, "outro_solo": 1}.get(first_p)
+    if visible is None:
+        visible = {"B_solo_male": 2, "B_solo_female": 1}.get(tier)
+    if lines and not effective_vo and visible is not None and visible != actor:
+        raise ValueError("On-camera speaker does not match the visible actor; select the speaker's shot or voiceover")
 
     # 防呆熔断 2：双轨物理分流构图死锁 + 正反打屏幕左右方向与俯仰视线互补锁
     comp_lock = ""
@@ -708,46 +734,31 @@ def build_shot_description(shot, index, total_shots, dur, size_desc, cam_desc,
         prop_anchor_clause = " holding <Subject 4> anchored in <Picture 4>," if shot.get("prop_ref") else ""
         comp_lock = (f"COMPOSITION LOCK: Extreme macro framing cropped tightly on the hand and surface contact area,{prop_anchor_clause} "
                      "with 20% shallow depth-of-field background anchored in <Picture 3>. ")
-    elif first_p == "srs_male":
-        # 视线匹配与屏幕轴线联动锁 (Eyeline & Action Axis Match)
-        is_intimate_reaction = shot.get("is_intimate", False) or shot.get("size") in ("face", "cu") and any(k in str(shot.get("text", "")) for k in ("喘", "汗", "爽", "潮红", "高潮", "咬牙", "呻吟"))
-        staging_clause = ""
-        # 轴线决定站位：若 female 在左，则 male 在右，视线朝左前景；反之 male 在左，视线朝右前景
-        male_side = "right" if female_screen_side == "left" else "left"
-        default_dir = "left foreground" if male_side == "right" else "right foreground"
-        eyeline_dir = f"direct eye-level gaze locked horizontally toward the {default_dir}"
-        ctx = str(shot.get("context_pose", "")) + " " + str(shot.get("text", ""))
-        if any(k in ctx for k in ("cowgirl", "骑乘", "女上")):
-            eyeline_dir = "gazing upward at a 15-degree angle toward <Subject 1> mounted above him"
-        elif any(k in ctx for k in ("missionary", "传教士", "压在")):
-            eyeline_dir = "gazing downward at a 15-degree angle toward <Subject 1> beneath him"
-        elif not is_intimate_reaction:
-            blocking_type, blocking_en = _dialogue_blocking(shot)
-            staging_clause = f"Staging: {blocking_en}. "
-        comp_lock = (f"COMPOSITION LOCK: Tight single-subject focus cropped from chest to head on <Subject 2> positioned on the {male_side} side of the frame, "
-                     f"{eyeline_dir} against <Picture 3> background. "
-                     f"{staging_clause}")
-    elif first_p == "srs_female":
-        is_intimate_reaction = shot.get("is_intimate", False) or shot.get("size") in ("face", "cu") and any(k in str(shot.get("text", "")) for k in ("喘", "汗", "爽", "潮红", "高潮", "咬牙", "呻吟"))
-        staging_clause = ""
-        female_side = "left" if female_screen_side == "left" else "right"
-        default_dir = "right foreground" if female_side == "left" else "left foreground"
-        eyeline_dir = f"direct eye-level gaze locked horizontally toward the {default_dir}"
-        ctx = str(shot.get("context_pose", "")) + " " + str(shot.get("text", ""))
-        if any(k in ctx for k in ("cowgirl", "骑乘", "女上")):
-            eyeline_dir = "gazing downward at a 15-degree angle toward <Subject 2> beneath her"
-        elif any(k in ctx for k in ("missionary", "传教士", "压在")):
-            eyeline_dir = "gazing upward at a 15-degree angle toward <Subject 2> above her"
-        elif not is_intimate_reaction:
-            blocking_type, blocking_en = _dialogue_blocking(shot)
-            staging_clause = f"Staging: {blocking_en}. "
-        comp_lock = (f"COMPOSITION LOCK: Tight single-subject reaction cropped from collarbones to head on <Subject 1> positioned on the {female_side} side of the frame, "
-                     f"{eyeline_dir} against <Picture 3> support surface. "
-                     f"{staging_clause}")
+    elif first_p in PROP_IDS:
+        size_desc = "single medium close profile view including the prop and visible supporting surface"
+        comp_lock = "COMPOSITION LOCK: <Subject 1> alone, with the weight-bearing contact on the support in frame. "
+    elif first_p in ("srs_male", "srs_female", "outro_solo"):
+        side, toward = (female_screen_side, male_side) if visible == 1 else (male_side, female_screen_side)
+        size_desc = "single chest-up close-up with face and mouth clearly visible"
+        if "shoulder" in cam_desc.lower():
+            cam_desc = "eye-level lateral drift of 6 cm from the established camera side"
+        mark = f" at screen-{side}" if side else ''
+        look = '' if plan and plan['start']['gaze'].get(f'S{visible}') else (f", looking toward screen-{toward}" if toward else '')
+        if plan and plan['relation'] in ('side_by_side','shared_view') and not plan['start']['gaze'].get(f'S{visible}'):
+            look = ', looking in the established shared direction'
+        comp_lock = f"COMPOSITION LOCK: <Subject {visible}> alone{mark}{look} against <Picture 3>. "
     elif first_p == "blocking_2s":
-        blocking_type, blocking_en = _dialogue_blocking(shot)
-        comp_lock = ("COMPOSITION LOCK: Two-shot framing both characters establishing their relative positions and power dynamic. "
-                     f"Staging: {blocking_en}. ")
+        if lines and not effective_vo:
+            size_desc = "chest-up two-shot keeping both faces and the speaking mouth visible"
+        marks = (f"<Subject 1> stays at screen-{female_screen_side}; <Subject 2> stays at screen-{male_side}. "
+                 if female_screen_side else 'Both performers keep their established marks. ')
+        comp_lock = 'COMPOSITION LOCK: ' + marks
+        if plan:
+            comp_lock += RELATIONS[plan['relation']] + '. '
+        # The direct low-level API also accepts an explicit storyboard relation; never infer it from a location.
+        elif shot.get('blocking'):
+            from tunjing_dialogue import build_blocking_lock
+            comp_lock += build_blocking_lock(shot['blocking'], '')[1] + '. '
     elif shot.get("size") in ("hip", "macro") and is_penetration and (not lines or effective_vo):
         comp_lock = ("COMPOSITION LOCK: Low-angle pelvic framing cropped tightly from waist to mid-thigh, "
                      "containing exclusively the lower torso, joined hips, and rhythmic pelvic collision against <Picture 3> surface. ")
@@ -761,6 +772,19 @@ def build_shot_description(shot, index, total_shots, dur, size_desc, cam_desc,
     if tier == "C_empty_cut":
         size_desc = "wide architectural establishing shot revealing the room layout and environment"
 
+    if plan:
+        if plan['reframe']:
+            cam_desc = plan['reframe'].rstrip('.')
+        if first_p in DIALOGUE:
+            visible_ids = (f'S{visible}',) if visible is not None else ('S1','S2')
+            comp_lock += visible_notes(plan, visible_ids) + ' '
+            if plan['camera_side'] != 'the established camera side':
+                comp_lock += f"Camera position: {plan['camera_side']}. "
+
+    note = shot.get('staging_note',{})
+    if note.get('kind')=='hands':
+        size_desc='close-up on the hands'
+        if note.get('to_face'): cam_desc += ', progressing from the hands to the face'
     segmented_cam = format_segmented_camera_en(cam_desc, dur, shot_size=shot.get("size", ""))
 
     # 唯一 Camera: 指令行 + 分号 (;) 黄金分割律
@@ -768,7 +792,7 @@ def build_shot_description(shot, index, total_shots, dur, size_desc, cam_desc,
         shot_prefix = f"Camera: {size_desc}, {segmented_cam}.\n[Shot 1] Live-action cinematic, {size_desc}, {segmented_cam}; "
         if first_p == "env_establish":
             at_str = "From 0.00s, within <Subject 3>: "
-        elif first_p == "srs_female" or first_p == "outro_solo":
+        elif first_p in PROP_IDS or first_p in ("srs_female", "outro_solo"):
             at_str = "From 0.00s, <Subject 1> within <Subject 3>: "
         elif first_p == "srs_male":
             at_str = "From 0.00s, <Subject 2> within <Subject 3>: "
@@ -780,10 +804,16 @@ def build_shot_description(shot, index, total_shots, dur, size_desc, cam_desc,
         shot_prefix = f"Camera: {size_desc}, {segmented_cam}.\n[Shot 1] At 0.00s, {cut_phrase} {size_desc}, {segmented_cam}; "
         at_str = "At 0.00s, actively in motion, inheriting kinetic momentum from the previous shot: "
 
+    if plan:
+        # A cut changes the image, not the previous scene's momentum or the cast's marks.
+        at_str = 'At 0.00s: '
     raw_action = shot.get("text_en") or shot.get("text") or ""
+    if plan and (plan['action'] or first_p in DIALOGUE):
+        raw_action = plan['action'] or neutral_action(first_p)
     adapted_action = sanitize_positive_only(with_scene_surface(raw_action, scene))
     # 起点-变化-终点动作链（治站桩：动作必须有头有尾，不是没头没尾的体位拍）
-    adapted_action = wrap_action_arc(adapted_action)
+    if not plan or not (plan["action"] or first_p in DIALOGUE):
+        adapted_action = wrap_action_arc(adapted_action)
 
     emo_key_body = resolve_emotion_key(emotion, lines, fallback="default")
     emo_cue_extra = ""
@@ -797,45 +827,42 @@ def build_shot_description(shot, index, total_shots, dur, size_desc, cam_desc,
     elif first_p in FINISH_IDS or is_penetration:
         emo_cue_extra = (f" Facial performance: {EMOTION_MUSCLE_CUES.get(emo_key_body, EMOTION_MUSCLE_CUES['default'])} "
                          f"Body action: {body_action}.")
-    body_text = f"{comp_lock}{at_str}{adapted_action}.{emo_cue_extra}"
+    if plan and (plan['action'] or first_p in DIALOGUE):
+        # Generic body beats may stand a seated actor up or occupy the hand holding a prop.
+        emo_cue_extra = ''
+    if shot.get("motion_override"):
+        adapted_action = raw_action
+        emo_cue_extra = ""
+    body_text = f"{comp_lock}{at_str}{adapted_action.rstrip('.')}.{emo_cue_extra}"
+    if plan and plan['start'] != plan['end'] and first_p in DIALOGUE:
+        ending = visible_notes(dict(plan, start=plan['end']), visible_ids)
+        if ending:
+            body_text += ' At the end: ' + ending
     if any(k in pid for k in ("kiss", "kiss_fondle", "kiss_pin", "kiss_force", "kiss_her")):
         body_text += " (Anatomical lock: lips gently parted 5 mm with subtle contact and natural lip geometry; his left hand is the single hand in frame)."
 
-    if is_penetration and shot.get("size") not in ("face", "cu"):
+    if is_penetration and not shot.get("motion_override") and shot.get("size") not in ("face", "cu"):
         body_text += " Snug anatomical junction between penis and vaginal entrance, male anatomy fully seated inside the female body with deep pelvic seal, rhythmic piston strokes clearly readable with elastic skin recoil and no part ever emerging detached."
 
     tail = ""
     if hold_last_second or first_p == "outro_solo":
         tail += " The movement stops and the picture holds still for the last second."
-    if index == total_shots - 1 and first_p != "outro_solo":
+    if index == total_shots - 1 and first_p != "outro_solo" and tier != "C_empty_cut":
         tail += f" Final state: Continuous anatomical alignment and stable composition held steady to {dur:.2f}s."
 
     # 独立成段的 SPEECH: 行（扣除开口前 1.1s 延迟与尾段 0.7s 反应余韵）
     speech_line = ""
     if lines:
-        is_female_spk = ("女" in speaker or "S1" in speaker or "Subject 1" in speaker)
-        spk_tag = "<Subject 1> (S1)" if is_female_spk else "<Subject 2> (S2)"
-        listener_tag = "<Subject 2> (S2)" if is_female_spk else "<Subject 1> (S1)"
-        spk_pronoun = "her" if is_female_spk else "his"
-        listener_pronoun = "his" if is_female_spk else "her"
-        emo_key = resolve_emotion_key(emotion, lines, fallback="default")
-        muscle_cue = EMOTION_MUSCLE_CUES.get(emo_key, EMOTION_MUSCLE_CUES["default"])
+        speech_line = _speech_lock(actor, lines, dur, tier, effective_vo)
 
-        if is_oral and is_female_spk and not effective_vo:
-            speech_line = (f"\nSPEECH: <Subject 1> (S1) says in an off-screen voiceover: <d>[Chinese]{lines}</d> "
-                           f"while her lips remain completely closed and sealed around the shaft.")
-        elif effective_vo:
-            speech_line = (f"\nSPEECH: {spk_tag} says in an off-screen voiceover: <d>[Chinese]{lines}</d> "
-                           f"while {spk_pronoun} lips remain completely closed.")
-        else:
-            t_mid_start = min(DIALOGUE_LEAD_SECONDS, max(0.0, dur - DIALOGUE_TAIL_SECONDS))
-            t_mid_end = max(t_mid_start, round(dur - DIALOGUE_TAIL_SECONDS, 2))
-            listener_clause = (f" while {listener_tag} keeps {listener_pronoun} lips completely closed and motionless" if tier == "A_two_shot" else "")
-            speech_line = (f"\nSPEECH: From {t_mid_start:.2f}s to {t_mid_end:.2f}s, {muscle_cue}, "
-                           f"{spk_tag} says: <d>[Chinese]{lines}</d>{listener_clause}.")
-
-    full_shot_desc = f"{shot_prefix}{body_text}{tail}{speech_line}"
-    return sanitize_positive_only(full_shot_desc)
+    if shot.get('action_steps'):
+        body_text = 'At 0.00s: ' + with_scene_surface(shot['text_en'], scene)
+        tail = ''  # the card, not the final-shot heuristic, owns hold/exit
+    if note:
+        body_text = 'At 0.00s: ' + note['visual']
+        tail = ''
+    # Visual sanitization must never rewrite a character’s words.
+    return sanitize_positive_only(f"{shot_prefix}{body_text}{tail}") + speech_line
 
 
 def single_shot_prompt(shot, index, total_shots, dur, size_desc, cam_desc,
@@ -862,8 +889,11 @@ def single_shot_prompt(shot, index, total_shots, dur, size_desc, cam_desc,
     is_rear = first_p in REAR_POSES
     is_supine = first_p in SUPINE_POSES
     is_oral = first_p in ORAL_POSES or first_p in ORAL_ONLY
-    female_screen_side = shot.get("female_screen_side", shot.get("female_side", "left"))
+    plan = shot.get('blocking_state')
+    female_screen_side = ('left' if plan['screen_left'] == 'S1' else 'right') if plan else shot.get('female_screen_side', shot.get('female_side'))
     shot_size = shot.get("size", "mcu")
+    if shot.get('action_steps') and shot['action_steps'][0].get('support') == 'wall':
+        scene = 'wall'  # Do not give the wall shot a conflicting mattress anchor or soundscape.
 
     eff_prop = prop_ref or shot.get("prop_ref", "")
     header = build_fullref_header(
@@ -886,7 +916,8 @@ def single_shot_prompt(shot, index, total_shots, dur, size_desc, cam_desc,
     parts = _official_ref2va_header(header)
     parts.append("detailed_description:")
     parts.append(shot_body)
-    parts.append("overall_soundscape: " + build_soundscape_en(scene, is_staging=is_staging))
+    sound = 'Room tone from the established location.' if plan and is_staging else build_soundscape_en(scene, is_staging=is_staging)
+    parts.append("overall_soundscape: " + sound)
     parts.append("non_diegetic_music: N/A")
     return "\n".join(parts)
 

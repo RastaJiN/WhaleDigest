@@ -304,7 +304,7 @@
       "加快：起落加速、幅度加大，偶尔研磨腰画圈；她咬唇，低头看着他双眼；上身始终直立不趴伏，男子A双手始终不扶腰"
     ],
     "beatsEn": [
-      "First-person POV: his perspective looks up from his chest; she straddles facing him, torso upright and straight, guides him in and sinks to the base; hands on his chest or her thighs",
+      "He lies on his back; she straddles facing him, torso upright and straight, guides him in and sinks to the base; hands on his chest or her thighs",
       "Upright riding: she stays vertical, up-down strokes mostly in-body; breasts bounce; his hands stay at his sides",
       "Faster riding with grinding; she bites her lip and looks downward directly into his eyes; torso stays upright and arched"
     ],
@@ -1374,6 +1374,94 @@
     ],
     "lineZh": "啊…手指…进得好深…好舒服…",
     "lineEn": "ah... your fingers... so deep... so good..."
+  },
+  "dildo_masturbate": {
+    "id": "dildo_masturbate",
+    "nameZh": "假阳具自慰",
+    "nameEn": "Seated dildo use",
+    "category": "前戏与独处",
+    "framingZh": "侧面取景，保留承托面",
+    "framingEn": "Profile view with the supporting surface visible",
+    "beatsZh": [
+      "假阳具自慰，保持身体与承托面接触。"
+    ],
+    "beatsEn": [
+      "Seated in profile, she guides the dildo with one hand while her weight stays on the visible support."
+    ],
+    "sfxZh": [
+      "衣料轻响"
+    ],
+    "sfxEn": [
+      "soft fabric rustle"
+    ],
+    "lineZh": "",
+    "lineEn": ""
+  },
+  "pillow_hump": {
+    "id": "pillow_hump",
+    "nameZh": "骑枕头",
+    "nameEn": "Pillow straddle",
+    "category": "前戏与独处",
+    "framingZh": "侧面取景，保留承托面",
+    "framingEn": "Profile view with the supporting surface visible",
+    "beatsZh": [
+      "骑枕头，保持身体与承托面接触。"
+    ],
+    "beatsEn": [
+      "She straddles the pillow, shifting her weight forward until the fabric compresses beneath her knees."
+    ],
+    "sfxZh": [
+      "衣料轻响"
+    ],
+    "sfxEn": [
+      "soft fabric rustle"
+    ],
+    "lineZh": "",
+    "lineEn": ""
+  },
+  "toy_tease": {
+    "id": "toy_tease",
+    "nameZh": "玩具挑逗",
+    "nameEn": "Handheld toy tease",
+    "category": "前戏与独处",
+    "framingZh": "侧面取景，保留承托面",
+    "framingEn": "Profile view with the supporting surface visible",
+    "beatsZh": [
+      "玩具挑逗，保持身体与承托面接触。"
+    ],
+    "beatsEn": [
+      "She traces a short path along her thigh with the handheld toy, then pauses with her wrist resting on her leg."
+    ],
+    "sfxZh": [
+      "衣料轻响"
+    ],
+    "sfxEn": [
+      "soft fabric rustle"
+    ],
+    "lineZh": "",
+    "lineEn": ""
+  },
+  "lying_dildo": {
+    "id": "lying_dildo",
+    "nameZh": "仰卧假阳具自慰",
+    "nameEn": "Reclining dildo use",
+    "category": "前戏与独处",
+    "framingZh": "侧面取景，保留承托面",
+    "framingEn": "Profile view with the supporting surface visible",
+    "beatsZh": [
+      "仰卧假阳具自慰，保持身体与承托面接触。"
+    ],
+    "beatsEn": [
+      "She reclines with her shoulder blades resting on the support and steadies the dildo in one hand."
+    ],
+    "sfxZh": [
+      "衣料轻响"
+    ],
+    "sfxEn": [
+      "soft fabric rustle"
+    ],
+    "lineZh": "",
+    "lineEn": ""
   },
   "solo_masturbate": {
     "id": "solo_masturbate",

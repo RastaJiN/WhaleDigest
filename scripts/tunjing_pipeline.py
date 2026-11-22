@@ -70,6 +70,7 @@ def main():
     ap.add_argument("script", nargs="?", default="", help="剧本.md 文件路径（或项目目录）；不填则自检入口并提示")
     ap.add_argument("--aspect", default="9:16", help="画幅 9:16/16:9/1:1，默认竖屏")
     ap.add_argument("--total", type=float, default=240.0, help="全集目标时长秒")
+    ap.add_argument("--scene-id", help="采用剧本中的当前场次 ID")
     ap.add_argument("--scene", default="酒店客房", help="主场景名")
     ap.add_argument("--lines", default="", help="台词（可选，格式 '镜号:女子A:台词' 竖线分隔）")
     ap.add_argument("--idea", default="", help="剧情核心张力描述")
@@ -128,35 +129,20 @@ def main():
 
     from tunjing_core import load_poses, STAGING_IDS
     from tunjing_dialogue import DIALOGUE_SHOT_RECIPES, resolve_intent
-    from tunjing_pose_select import select_poses_with_staging, select_poses_from_script
+    from tunjing_pose_choice import choose, reviewed_plan, authored_text
     poses = load_poses()
+    try:
+        choose(script_txt, script_file, poses, args.scene, args.scene_id)
+    except ValueError as exc:
+        sys.exit(str(exc))
+    pose_ids, _, _ = reviewed_plan(project_dir, script_file, args.scene, args.scene_id)
+    authored = authored_text(script_txt)
+    intent = resolve_intent(authored)
+    print(f"  已决分镜顺序: {pose_ids} | 文戏意图: {DIALOGUE_SHOT_RECIPES[intent]['zh']}")
+    if not any(p not in STAGING_IDS for p in pose_ids):
+        print("  [纯文戏] 只编排可见调度；不匹配场地体位。")
 
-    # 场景自动识别体位（场景 → 姿势 → 体位提示词），绝不写死默认链
-    pose_ids, pose_source, intent = select_poses_with_staging(script_txt, args.scene)
-
-    print(f"  识别到体位序列: {pose_ids}")
-    print(f"  识别来源: {pose_source} | 文戏意图: {intent} -> {DIALOGUE_SHOT_RECIPES[intent]['zh']}")
-    sex_pose_ids = [p for p in pose_ids if p not in STAGING_IDS]
-    if not sex_pose_ids:
-        # 纯文戏剧集（无肉戏信号），合法，继续跑文戏链，不塞肉戏、不退出
-        print("  [纯文戏] 剧本无肉戏信号，仅编排文戏镜头，不强行塞肉戏体位。")
-
-    # 把识别出的调度链写回剧本（场景 → 文戏原语/体位 → 写进剧本 → 门禁可识别吞鲸 ID）
-    # 纯文戏写文戏原语，含肉戏写体位 + 文戏原语；保留剧本原文不动
-    if "吞鲸体位推进" not in script_txt:
-        # 写回时按顺序写全部调度链（文戏原语 + 肉戏体位），确保 Gate 2 能认到
-        pose_lines = ["## 吞鲸体位推进", "",
-                      "以下为本集按场景自动识别的吞鲸标准调度序列（供门禁与分镜引擎识别）：", ""]
-        for pid in pose_ids:
-            p = poses.get(pid, {})
-            pose_lines.append(f"- `{pid}` {p.get('nameZh', pid)}")
-        pose_lines.append("")
-        with open(script_file, "a", encoding="utf-8") as f:
-            f.write("\n" + "\n".join(pose_lines))
-        # 重新读剧本（已含写入的调度链），供后续使用
-        with open(script_file, "r", encoding="utf-8") as f:
-            script_txt = f.read()
-        print(f"  已将 {len(pose_ids)} 个调度项写回剧本（吞鲸调度链段落）：{','.join(pose_ids)}")
+    # The reviewed receipt is the execution input. Never write back to the screenplay.
 
     # ── 2. 组装调度链：场景自动识别的体位序列 ──
     step_banner(2, "自动组装调度链（场景识别体位）")
@@ -166,21 +152,12 @@ def main():
     # ── 3. 拆镜 + 装提示词（调用 tunjing_scene.py） ──
     step_banner(3, "拆镜 + 六段式提示词装配（tunjing_scene.py）")
     cmd = [sys.executable, os.path.join(BASE_DIR, "tunjing_scene.py"), "--chain", chain_str,
-           "--total", str(args.total), "--scene", args.scene, "--aspect", args.aspect, "--out-dir", project_dir]
-    dialogue_arg = args.lines
-    if not dialogue_arg:
-        from tunjing_scene import build_scene
-        planned, _ = build_scene(pose_ids, args.total, poses)
-        extracted = re.findall(r"(?m)^([^\n<>：:]{1,40})[：:]\s*<d>(?:\[[^]]+\])?(.*?)</d>", script_txt)
-        if not extracted:
-            extracted = [("女子A", text) for text in re.findall(r"<d>(?:\[[^]]+\])?(.*?)</d>", script_txt, re.S)]
-        available = [i for i, shot in enumerate(planned, 1) if shot.get("pose") != "env_establish"]
-        if len(extracted) > len(available):
-            print("[X] 对白句数超过可承载镜头数，请提供显式 --lines 映射")
-            sys.exit(1)
-        dialogue_arg = "|".join(f"{index}:{speaker.strip()}:{text.strip()}" for index, (speaker, text) in zip(available, extracted))
-    if dialogue_arg:
-        cmd.extend(["--lines", dialogue_arg])
+           "--total", str(args.total), "--scene", args.scene, "--aspect", args.aspect, "--out-dir", project_dir, "--script-file", script_file]
+    cmd.extend(["--card-offset", "0"])
+    if args.scene_id:
+        cmd.extend(["--scene-id", args.scene_id])
+    if args.lines:
+        cmd.extend(["--lines", args.lines])
     if args.idea:
         cmd.extend(["--idea", args.idea])
     out, rc = run(cmd)
@@ -200,6 +177,7 @@ def main():
         if rc != 0 or not is_pass:
             gate_failed = True
             print(f"  [X] Gate {g}: {tail[-2] if len(tail)>=2 else out[-200:]}")
+            break
         else:
             print(f"  [✓] Gate {g} PASS")
     if gate_failed:

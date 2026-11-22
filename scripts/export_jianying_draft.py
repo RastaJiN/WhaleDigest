@@ -18,7 +18,7 @@ import re
 import shutil
 import argparse
 import subprocess
-from tunjing_task_source import load_task_source
+from tunjing_task_source import load_task_source, execution_board_path
 from tunjing_media import find_clip, probe_media
 
 
@@ -345,7 +345,7 @@ def export_to_jianying(project_dir=None, storyboard_file=None, draft_name=None,
             project_dir = os.path.dirname(sb_file)
     elif project_dir:
         project_dir = os.path.abspath(project_dir)
-        sb_file = os.path.join(project_dir, "分镜.md")
+        sb_file = str(execution_board_path(project_dir))
     else:
         raise ValueError("必须提供 project_dir 或 --storyboard 分镜文件路径！")
 

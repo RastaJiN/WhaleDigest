@@ -146,25 +146,24 @@ SURFACE_EN = {"桌": "table", "门框": "door frame", "墙": "wall", "": "surfac
 
 
 def resolve_blocking(scene_text, lines_text):
-    """自动识别文戏站位类型：隔桌/隔门/贴墙/并排"""
-    t = (scene_text or "") + " " + (lines_text or "")
-    if any(k in t for k in ("并排", "并肩", "一起看", "一起走")):
-        return "并排", ""
-    if any(k in t for k in ("桌", "办公桌", "柜台", "吧台", "茶几", "table", "desk")):
-        return "隔桌", "table"
-    if any(k in t for k in ("门口", "门", "走廊", "玄关", "door")):
-        return "隔门", "door frame"
-    if any(k in t for k in ("壁咚", "墙", "贴墙", "靠墙", "wall")):
-        return "贴墙", "wall"
-    if any(k in t for k in ("并排", "并肩", "一起看", "一起走")):
-        return "并排", ""
-    return "隔桌", "table"
+    """Prefer explicit staging/location to generic beat text. Do not invent furniture."""
+    for description in (scene_text, lines_text):
+        t = (description or "").casefold()
+        if any(k in t for k in ("并排", "并肩", "一起看", "一起走", "side by side")):
+            return "并排", ""
+        if any(k in t for k in ("桌", "柜台", "吧台", "茶几", "table", "desk")):
+            return "隔桌", "table"
+        if any(k in t for k in ("隔门", "门口", "门框", "门边", "玄关", "doorway", "door frame", "across the door")):
+            return "隔门", "door frame"
+        if any(k in t for k in ("贴墙", "墙边", "靠墙", "against the wall", "by the wall")):
+            return "贴墙", "wall"
+    return "原位", ""
 
 
 def build_blocking_lock(scene_text, lines_text):
     """生成文戏站位的 COMPOSITION LOCK 英文描述"""
     btype, surface = resolve_blocking(scene_text, lines_text)
-    en = BLOCKING_EN.get(btype, BLOCKING_EN["隔桌"]).format(surface=surface or "table")
+    en = BLOCKING_EN.get(btype, "both keep their established marks relative to the scene reference").format(surface=surface)
     return btype, en
 
 

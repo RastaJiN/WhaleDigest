@@ -64,6 +64,8 @@ python scripts/export_jianying_draft.py <项目目录> --name "我的漫剧_EP01
 - 自动提取台词生成卡点字幕轨（黄色描边、底部居中）；
 - 打开剪映客户端即可直接双击预览、加转场特效或导出成片！
 
+**仅做本地后期，不开 H3 队列**：有现成母带时，可选用 `scripts/tunjing_post.py check` / `render` 分轨处理字幕、普通字卡和已有配乐；不用安装 Node 或剪映。复杂面板不走此路径。输入、毫秒时间轴与 CLI 示例见[后期交付](references/post-delivery.md)和[逐曲确认](references/post-music.md)。该入口不覆盖原片，也不负责去除已烫进原片的字。
+
 ### 5. 专治大模型（DeepSeek/GPT）自作主张的偏离度审计对比
 
 ```bash

@@ -42,8 +42,9 @@ def diagnose_project(project_dir):
     sb_file = os.path.join(project_dir, "分镜.md")
     bj_file = os.path.join(project_dir, "批量任务.json")
 
-    script_txt = open(script_file, "r", encoding="utf-8").read() if os.path.exists(script_file) else ""
-    sb_txt = open(sb_file, "r", encoding="utf-8").read() if os.path.exists(sb_file) else ""
+    from pathlib import Path
+    script_txt = Path(script_file).read_text(encoding="utf-8-sig") if os.path.isfile(script_file) else ""
+    sb_txt = Path(sb_file).read_text(encoding="utf-8-sig") if os.path.isfile(sb_file) else ""
     from tunjing_task_source import load_task_source
     if os.path.exists(os.path.join(project_dir, ".tunjing_project.json")) or os.path.exists(bj_file):
         _, batch_data, _ = load_task_source(project_dir)

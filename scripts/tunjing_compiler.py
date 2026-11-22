@@ -23,6 +23,13 @@ def parse_prompt_sections(text):
     positive = strip_dialogue(text)
     matches = list(_SECTION_RE.finditer(positive))
     errors, sections = [], {}
+    if matches and positive[:matches[0].start()].strip():
+        errors.append("结构错误：subject_definitions 之前不能夹带标题或工作指令")
+    extra_fields = re.findall(r"^[ \t]*([a-z]+(?:_[a-z0-9]+)+):", positive, re.M)
+    for name in sorted(set(extra_fields) - set(OFFICIAL_SECTIONS)):
+        errors.append(f"结构错误：未知顶层字段 {name}:")
+    if re.search(r"^[ \t]*(?:\[Visual Constraints\b|(?:Goal & Audio Contract|Audio rule|Voice discipline|MOTION FLOOR):)", positive, re.M | re.I):
+        errors.append("结构错误：内部工作指令不能作为送模段头或尾块")
     for index, match in enumerate(matches):
         name = match.group(1)
         end = matches[index + 1].start() if index + 1 < len(matches) else len(positive)
@@ -57,16 +64,72 @@ def _validate_dialogue(text):
             stack.pop()
     if stack:
         errors.append("结构错误：台词 <d> 缺少闭合 </d>")
-    for match in _DIALOGUE_RE.finditer(text):
+    utterances = list(_DIALOGUE_RE.finditer(text))
+    speech_rows = [row for row in strip_dialogue(text).splitlines() if row.lstrip().upper().startswith("SPEECH:")]
+    if len(utterances) > 1 or len(speech_rows) != len(utterances):
+        errors.append("对白错误：每个单镜请求只允许一条独立台词，换人请拆镜")
+    for row in speech_rows:
+        if re.search(r"\b(?:in unison|both voices|(?:both|they) (?:speak|say|recite) together)\b", row, re.I):
+            errors.append("对白错误：单人台词不能要求两人齐读")
+    for match in utterances:
+        # Inspect the original quote before strip_dialogue removes it from the visual checks.
+        label = re.search(r"<\s*/?\s*(?:Picture|Audio|Video|Subject)\s*\d+\s*>", match.group(1), re.I)
+        if label:
+            errors.append(f"对白错误：台词内不能包含素材或主体标签 {label.group(0)}")
         if not re.match(r"^\s*\[[^\]\r\n]+\]", match.group(1)):
             errors.append("结构错误：台词缺少独立语言标签，如 [Chinese]")
         speech = re.sub(r"^\s*\[[^\]\r\n]+\]\s*", "", match.group(1)).strip()
         if not speech:
             errors.append("错误：检测到空的真实台词（语言标签后没有正文）")
+        if "\n" in match.group(1) or "\r" in match.group(1):
+            errors.append("对白错误：逐字台词必须写在同一行")
         line_start = text.rfind("\n", 0, match.start()) + 1
         prefix = text[line_start:match.start()]
-        if not re.fullmatch(r"[ \t]*SPEECH:[ \t]*(?:From[ \t]+[^<>\r\n]*?[ \t])?(?:<Subject\s+\d+>|(?:The\s+)?(?:woman|man|speaker|narrator))[^<>\r\n]*?\b(?:says|asks|replies|whispers|shouts|speaks|calls|murmurs|cries|answers|states|declares|adds|continues)\b[^<>\r\n]*:[ \t]*", prefix, re.IGNORECASE):
+        if not re.fullmatch(r"[ \t]*SPEECH:[ \t]*(?:From[ \t]+[^<>\r\n]*?[ \t])?(?:ONLY[ \t]+)?(?:<Subject\s+\d+>|(?:The\s+)?(?:woman|man|speaker|narrator))[^<>\r\n]*?\b(?:says|asks|replies|whispers|shouts|speaks|calls|murmurs|cries|answers|states|declares|adds|continues)\b[^<>\r\n]*:[ \t]*", prefix, re.IGNORECASE):
             errors.append("结构错误：每句真实台词必须位于独立 SPEECH: 行，包含说话者和发声动词")
+    return errors
+
+
+_SUBJECT = r"<Subject ([1-9][0-9]*)>"
+_PICTURE = r"<Picture ([1-9][0-9]*)>"
+_SUBJECT_ROW = re.compile(r"^\s*" + _SUBJECT + r"\s*(?:\(S([1-9][0-9]*)\)\s*)?(?:is\b|:|=)(.*)$")
+_VOICE_PAIR = re.compile(_SUBJECT + r"\s*\(S([1-9][0-9]*)\)")
+
+
+def _binding_errors(sections):
+    """Compare explicit bindings, not English prose, gaze, or screen direction."""
+    errors, pictures, voices, declared = [], {}, {}, set()
+    defs = sections.get('subject_definitions', '')
+    for row in defs.splitlines():
+        match = _SUBJECT_ROW.match(row)
+        if not match:
+            continue
+        sid, _, description = match.groups()
+        if sid in declared:
+            errors.append(f"实体映射错误：<Subject {sid}> 重复定义")
+        declared.add(sid)
+        pictures[sid] = set(re.findall(_PICTURE, description))
+    for sid, vid in _VOICE_PAIR.findall(defs):
+        if sid in voices and voices[sid] != vid:
+            errors.append(f"声源映射错误：<Subject {sid}> 的声音编号冲突")
+        voices[sid] = vid
+    # The local two-actor profile supplies a default when there is no explicit
+    # vocal binding. H3 does not require that the two ID namespaces be equal.
+    for sid in ('1', '2'):
+        if sid in pictures.get(sid, set()):
+            voices.setdefault(sid, sid)
+    outside = '\n'.join(value for name, value in sections.items() if name != 'subject_definitions')
+    for sid, vid in _VOICE_PAIR.findall(outside):
+        if sid in voices and vid != voices[sid]:
+            errors.append(f"声源映射错误：<Subject {sid}> 已绑定 S{voices[sid]}，不能改绑 S{vid}")
+    # Only test an explicit identity claim. A secondary picture may guide lighting,
+    # pose, costume, etc.; co-occurrence with a Subject is not evidence of rebinding.
+    for row in sections.get('retention_analysis', '').splitlines():
+        match = re.match(r'^\s*' + _SUBJECT + r'\s*:(.*)$', row)
+        if match and pictures.get(match[1]):
+            ref = re.search(r'\bidentity\b[^.;<>]*?\b(?:from|(?:anchored|locked) (?:in|to))\s*' + _PICTURE, match[2], re.I)
+            if ref and ref[1] not in pictures[match[1]]:
+                errors.append(f"实体映射错误：<Subject {match[1]}> 的身份参考 <Picture {ref[1]}> 与定义不符")
     return errors
 
 
@@ -81,9 +144,16 @@ def _lint_single_prompt(text):
         errors.append("结构错误：提示词不是有效 UTF-8")
     errors.extend(_validate_dialogue(text))
     positive = strip_dialogue(text)
+    for token in re.finditer(r"<\s*/?\s*(?:Subject|Picture|Audio|Video)\s*[0-9]+\s*>", positive, re.I):
+        if not re.fullmatch(r"<(?:Subject|Picture|Audio|Video) [1-9][0-9]*>", token[0]):
+            errors.append(f"引用格式错误：{token[0]}；使用标准大小写、单空格与正整数")
     sections, structure_errors = parse_prompt_sections(text)
     errors.extend(structure_errors)
     visual = sections.get("detailed_description", "")
+    errors.extend(_binding_errors(sections))
+    if any(row.lstrip().upper().startswith("SPEECH:")
+           for key, value in sections.items() if key != "detailed_description" for row in value.splitlines()):
+        errors.append("对白错误：SPEECH: 只能在 detailed_description 内出现")
     cameras = re.findall(r"^[ \t]*Camera:[ \t]*(.*)$", positive, re.MULTILINE)
     visual_cameras = re.findall(r"^[ \t]*Camera:[ \t]*(.*)$", visual, re.MULTILINE)
     if len(cameras) != 1 or len(visual_cameras) != 1:
@@ -135,7 +205,7 @@ def _lint_single_prompt(text):
     line_hits = re.findall(r"\b(line|lines|line-up)\b", visual, re.IGNORECASE)
     risky_lines = re.findall(r"\b(?:(?:red|blue|green|dashed|dotted|guide|guidance|composition|overlay|overlaid|drawn|graphic|reference|alignment|horizontal|vertical)\s+lines?|line-up|lines?\s+(?:overlay|across the frame|on the screen))\b", visual, re.IGNORECASE)
     if risky_lines:
-        errors.append(f"构图线词风险：画面段含明确叠加或构图线 {sorted(set(risky_lines))}")
+        warnings.append(f"构图线词请复核：{sorted(set(risky_lines))}；物体纹理与后期叠线不能仅由词形判断")
     elif line_hits:
         warnings.append(f"构图线词兼容性建议：{sorted(set(line_hits))}；应确认其描述可见物体还是叠加线")
     # A visible instrument is valid visual content; abstract sound belongs in audio.
@@ -154,6 +224,31 @@ def lint_tunjing_prompt(text):
     errors, warnings = _lint_single_prompt(text)
     if isinstance(text, str) and "```" in text:
         errors.append("任务 prompt 必须是原文，不能包含 Markdown 代码围栏")
+    return errors, warnings
+
+
+def lint_task_prompt(shot, batch=None):
+    """Validate immutable model text against this shot's actual reference inventory."""
+    if __package__:
+        from .tunjing_audio_contract import resolve_audio_contract
+    else:
+        from tunjing_audio_contract import resolve_audio_contract
+    prompt = shot.get('prompt')
+    errors, warnings = lint_tunjing_prompt(prompt)
+    if not isinstance(prompt, str):
+        return errors, warnings
+    try:
+        audio = resolve_audio_contract(shot, batch)
+    except ValueError as exc:
+        return errors + [str(exc)], warnings
+    images = shot.get('ref_images')
+    limits = {'Picture': len(images) if isinstance(images, list) else 0,
+              'Audio': len(audio['ref_audios']), 'Video': 0}
+    for kind, number in re.findall(r'<(Picture|Audio|Video) ([0-9]+)>', strip_dialogue(prompt)):
+        if not 1 <= int(number) <= limits[kind]:
+            message = f'参考槽位错误：本镜没有绑定 <{kind} {number}>'
+            if message not in errors:
+                errors.append(message)
     return errors, warnings
 
 

@@ -27,7 +27,7 @@ import urllib.error
 from tunjing_task_source import load_task_source, require_source_audit, source_record, validate_batch_metadata, validate_image_references
 from tunjing_media import probe_media
 from tunjing_audio_contract import resolve_audio_contract, validate_workflow_audio
-from tunjing_compiler import lint_tunjing_prompt
+from tunjing_compiler import lint_task_prompt
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_WF = os.path.join(BASE_DIR, "..", "references", "workflows", "tunjing_v4_master_api.json")
@@ -220,14 +220,27 @@ def sync_assets_to_comfy(project_dir, comfy_input_dir):
 
 def build_shot_workflow(base_wf, shot, custom_seed=None, prefix_override=None, aspect=None, batch=None):
     import copy
+    errors, _ = lint_task_prompt(shot, batch)
+    if errors:
+        raise ValueError(f"{shot.get('shot_id', shot.get('id'))}: " + "; ".join(errors))
     contract = resolve_audio_contract(shot, batch)
     validate_workflow_audio(base_wf, contract)
     wf = copy.deepcopy(base_wf)
     validate_image_references(shot.get("ref_images"))
     ref_imgs = list(shot["ref_images"])
-    for node in ("51", "49", "50", "265"):
-        if node not in wf:
-            raise ValueError(f"Missing required reference node {node}")
+    # This engine ships one fixed Ref2VA graph. Never validate shot['prompt'] but
+    # leave the model reading a stale literal/another Text node from the template.
+    text_node = wf.get('263', {})
+    model = wf.get('265', {})
+    ports = model.get('inputs', {})
+    if (text_node.get('class_type') != 'Text' or 'text' not in text_node.get('inputs', {})
+            or model.get('class_type') != 'MiniMaxH3ReferenceToVideo'
+            or ports.get('prompt') != ['263', 0]):
+        raise ValueError('H3 正文接线错误：265.prompt 必须读取 Text 节点 263 的输出 0')
+    for slot, node in enumerate(('51', '49', '50')):
+        if (wf.get(node, {}).get('class_type') != 'LoadImage' or
+                ports.get(f'ref_images.ref_image_{slot}') != [node, 0]):
+            raise ValueError(f'H3 参考图接线错误：Picture {slot + 1} 必须读取节点 {node}')
 
     if "51" in wf:
         wf["51"]["inputs"]["image"] = ref_imgs[0]
@@ -241,8 +254,8 @@ def build_shot_workflow(base_wf, shot, custom_seed=None, prefix_override=None, a
     for slot_idx, node_id in extra_slot_nodes:
         port_key = f"ref_images.ref_image_{slot_idx}"
         if len(ref_imgs) > slot_idx and ref_imgs[slot_idx]:
-            if node_id not in wf:
-                raise ValueError(f"Missing extra image node {node_id}")
+            if wf.get(node_id, {}).get("class_type") != "LoadImage":
+                raise ValueError(f"Missing extra LoadImage node {node_id}")
             if node_id in wf:
                 wf[node_id]["inputs"]["image"] = ref_imgs[slot_idx]
             if "265" in wf:
@@ -401,14 +414,11 @@ def main():
     os.makedirs(qc_sheet_dir, exist_ok=True)
 
     for s in shots:
-        # Use the same parser as Gate 4, including all supported speech verbs.
-        prompt = s.get("prompt", "")
-        errors, _ = lint_tunjing_prompt(prompt)
-        if errors:
-            print(f"[X 提示词检查失败] {s.get('shot_id', s.get('id'))}: " + "; ".join(errors))
+        try:
+            wf = build_shot_workflow(base_wf, s, aspect=batch.get("aspect"), batch=batch)
+        except ValueError as exc:
+            print(f"[X 提示词或接线无效] {exc}")
             sys.exit(1)
-
-        wf = build_shot_workflow(base_wf, s, aspect=batch.get("aspect"), batch=batch)
         shot_identifier = s.get("shot_id", s.get("id"))
         out_p = os.path.join(payload_dir, f"{shot_identifier}_api.json")
         with open(out_p, "w", encoding="utf-8") as f:

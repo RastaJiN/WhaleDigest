@@ -11,6 +11,13 @@ import re
 import math
 from pathlib import Path, PureWindowsPath
 
+if __package__:
+    from .tunjing_blocking import project_file, verify_inputs
+    from . import tunjing_shot_facts
+else:
+    from tunjing_blocking import project_file, verify_inputs
+    import tunjing_shot_facts
+
 
 MANIFEST_NAME = ".tunjing_project.json"
 LEGACY_BATCH_NAME = "批量任务.json"
@@ -111,8 +118,122 @@ def load_task_source(project_dir):
             raise TaskSourceError("Shot " + identifier + " prompt is not valid UTF-8") from exc
         if size > MAX_PROMPT_BYTES:
             raise TaskSourceError("Shot " + identifier + " prompt exceeds 8000 UTF-8 bytes")
+    _verify_export(project_dir, batch)
     return path, batch, hashlib.sha256(raw).hexdigest()
 
+
+
+def execution_board_path(project_dir, batch=None):
+    """Use the board selected by the batch, never an unbound sibling file."""
+    root = Path(project_dir).expanduser().resolve()
+    if batch is None:
+        if not ((root / MANIFEST_NAME).exists() or (root / LEGACY_BATCH_NAME).exists()):
+            return project_file(root, '分镜.md')  # Gate 3 is also usable before compilation.
+        _, batch = _read_json(resolve_task_path(root))
+    if not isinstance(batch, dict):
+        raise TaskSourceError('任务源必须是 JSON 对象')
+    _verify_export(root, batch)
+    return project_file(root, batch.get('execution_board', '分镜.md'))
+
+
+def _verify_export(root, batch):
+    try:
+        verify_inputs(root, batch)
+        verify_pose_export(root, batch)
+        tunjing_shot_facts.verify(root, batch)
+    except (ValueError, OSError) as exc:
+        raise TaskSourceError(str(exc)) from exc
+
+
+def verify_sourced_dialogue(sequence, rows):
+    """Verify ordered turn identity AND words in the actual prompt. A long
+    utterance may span requests; reassembly must yield the exact source turn."""
+    expected = [(item.get('source_scene'), item['dialogue']) for item in sequence if 'dialogue' in item]
+    if not expected: return  # legacy, manually allocated --lines
+    n = 0
+    parts = []
+    for row in rows:
+        turn = row.get('dialogue')
+        words = re.findall(r'<d>\[Chinese\](.*?)</d>', row['prompt'], re.S)
+        if turn is None and not words: continue
+        if not isinstance(turn,dict) or n>=len(expected): raise TaskSourceError('Unbound or extra speech')
+        scene, original = expected[n]
+        source_turn = {k:v for k,v in turn.items() if k not in ('part','part_text')}
+        if scene != row.get('source_scene') or original != source_turn:
+            raise TaskSourceError('Speech order, scene or named speaker differs from source')
+        words_for_part = turn.get('part_text',turn['text'])
+        speech = re.findall(r'^SPEECH: ([^\n]*?)<d>\[Chinese\]', row['prompt'], re.M)
+        actor = turn['actor']; digit = actor[1:]
+        anchor = rf'(?:<Subject {digit}> \({actor}\)|the narrator \(voice {actor}\)) says(?: in an off-screen voiceover)?: $'
+        if len(speech)!=1 or not re.search(anchor,speech[0]) or words != [words_for_part]:
+            raise TaskSourceError('Exported SPEECH does not match source actor and verbatim utterance')
+        if turn.get('part',0) != len(parts): raise TaskSourceError('Reordered speech continuation')
+        parts.append(words_for_part)
+        joined = ''.join(parts)
+        if not original['text'].startswith(joined): raise TaskSourceError('Rewritten speech')
+        if joined == original['text']:
+            parts.clear(); n+=1
+    if parts or n!=len(expected): raise TaskSourceError('Missing source speech')
+
+
+def verify_pose_export(project_dir, batch):
+    """Legacy batches need no review files. A reviewed project cannot fall back to one."""
+    if __package__:
+        from .tunjing_pose_choice import CARD, PLAN, BOARD, prompt_hash
+    else:
+        from tunjing_pose_choice import CARD, PLAN, BOARD, prompt_hash
+    root = Path(project_dir)
+    binding = batch.get('pose_input_hashes')
+    if binding is None:
+        if ('storyboard_cards' in batch or any((root/k).exists() for k in (CARD,PLAN)) or
+                any('action_decision' in shot for shot in batch.get('batch_shots', []))):
+            raise TaskSourceError('Unbound pose review; recompile from the confirmed card')
+        return
+    required = {CARD, PLAN, BOARD, '视频提示词.md'}
+    if not isinstance(binding, dict) or not required <= binding.keys() <= required | {'pose_recipes.json'}:
+        raise TaskSourceError('Incomplete pose review binding')
+    for name, digest in binding.items():
+        if (digest is None and name != CARD) or _file_digest(root/name) != digest:
+            raise TaskSourceError(f'分镜来源已变更：{name}；请重新编译并验收')
+    _, board = _read_json(root/BOARD)
+    if (not isinstance(board,dict) or board.get('cards') != batch.get('storyboard_cards') or
+            board.get('review_inputs') != {k:v for k,v in binding.items() if k not in (BOARD,'视频提示词.md')}):
+        raise TaskSourceError('Exported pose cards differ from the resolved storyboard')
+    _, receipt = _read_json(root/PLAN)
+    if receipt.get('cast_sha256') != _file_digest(root/'角色映射.json'):
+        raise TaskSourceError('源角色映射已更改；请重新编译')
+    rows = batch['batch_shots']
+    verify_sourced_dialogue(receipt['sequence'], rows)
+    if board.get('prompt_sha256') != [prompt_hash(row['prompt']) for row in rows]:
+        raise TaskSourceError('Prompt differs from the confirmed storyboard export')
+    shots = board.get('shots')
+    if not isinstance(shots, list) or len(shots) != len(rows):
+        raise TaskSourceError('Storyboard shot count changed')
+    for number, (shot, row) in enumerate(zip(shots, rows), 1):
+        if not isinstance(shot, dict):
+            raise TaskSourceError(f'SHOT-{number:02d}：已决分镜记录无效')
+        _check_shot_ids(row, number)
+        for field in ('pose', 'action_decision', 'action_steps', 'custom_recipe', 'blocking_state',
+                      'source_scene', 'source_line', 'cast', 'dialogue', 'staging_note'):
+            if field in shot or field in row:
+                if field not in shot:
+                    raise TaskSourceError(f'SHOT-{number:02d}：已决分镜没有 {field}')
+                _check_fact(row, field, shot[field], number)
+        for source, field in (('cam', 'camera_motion'), ('size', 'shot_size'),
+                              ('dur', 'duration'), ('frames', 'frames')):
+            if source in shot:
+                _check_fact(row, field, shot[source], number)
+
+
+def _check_fact(row, field, expected, number):
+    # Compare JSON values, including nested types (True is not source shot 1).
+    if field not in row or json.dumps(row[field], sort_keys=True) != json.dumps(expected, sort_keys=True):
+        raise TaskSourceError(f'SHOT-{number:02d}：批量任务 {field} 与分镜事实不符；请重新编译')
+
+
+def _check_shot_ids(row, number):
+    _check_fact(row, 'id', f'shot_{number}', number)
+    _check_fact(row, 'shot_id', f'shot_{number:02d}', number)
 
 
 def source_record(project_dir):
@@ -239,7 +360,8 @@ def validate_image_references(refs):
 
 
 _VALIDATOR_NAMES = ("tunjing_task_source.py", "tunjing_compiler.py", "tunjing_gatekeeper.py",
-                    "tunjing_diff_audit.py", "tunjing_audio_contract.py", "tunjing_core.py")
+                    "tunjing_diff_audit.py", "tunjing_audio_contract.py", "tunjing_core.py", "tunjing_blocking.py",
+                    "tunjing_pose_choice.py", "tunjing_prose.py", "tunjing_scene.py", "tunjing_shot_facts.py")
 
 
 def _file_digest(path):
@@ -274,7 +396,8 @@ def stage_record(project_dir, step):
     elif step == 2:
         inputs = {"剧本.md": inputs["剧本.md"]}
     elif step == 3:
-        inputs = {"分镜.md": inputs["分镜.md"]}
+        board = execution_board_path(root)
+        inputs = {"分镜.md": inputs["分镜.md"], board.name: _file_digest(board)}
     else:
         raise TaskSourceError("stage_record expects a gate from 1 to 3")
     return {"stage": step, "project_inputs": inputs, "validation_sources": _validation_fingerprints()}

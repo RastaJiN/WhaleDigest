@@ -115,9 +115,9 @@ def shot_time_bounds(dur, n, actions):
     return bounds
 
 
-def build_prompt(seq, dur=10.0, aspect="9:16", lines="", idea="", scene="当前场景"):
+def build_prompt(seq, dur=10.0, aspect="9:16", lines="", idea="", scene="当前场景", speaker=None):
     from tunjing_core import single_shot_prompt, dialogue_needed_seconds
-    from tunjing_scene import normalize_aspect
+    from tunjing_scene import normalize_aspect, resolve_slot_refs
     poses, recipes = load_poses(), load_recipes()
     unknown = [pid for pid in seq if pid not in poses]
     if not seq or unknown:
@@ -132,8 +132,13 @@ def build_prompt(seq, dur=10.0, aspect="9:16", lines="", idea="", scene="当前�
     bounds = shot_time_bounds(dur, len(actions), actions)
     timed = " ".join(f"From {bound['t0']:.2f}s to {bound['t1']:.2f}s: {with_scene_surface(action['text'], scene)}." for action, bound in zip(actions, bounds))
     shot = {"pose": "->".join(seq), "size": "mcu", "text_en": timed}
+    from tunjing_blocking import prepare
+    prepare([shot], scene_name=scene)
+    tier = resolve_slot_refs(shot["size"], shot["pose"], is_nude_state=False)[0]
+    if speaker is None:
+        speaker = "S2" if tier == "B_solo_male" else "S1"
     return single_shot_prompt(shot, 0, 1, dur, "medium close-up", "continuous subtle camera movement",
-                              lines=lines, idea=idea, scene=scene, aspect=normalize_aspect(aspect))
+                              lines=lines, speaker=speaker, idea=idea, scene=scene, tier=tier, aspect=normalize_aspect(aspect))
 
 
 def main():
@@ -142,6 +147,7 @@ def main():
     ap.add_argument("--dur", type=float, default=10.0, help="单镜时长秒")
     ap.add_argument("--aspect", default="9:16", help="9:16 / 16:9 / 1:1")
     ap.add_argument("--lines", default="", help="台词")
+    ap.add_argument("--speaker", help="说话人 S1/S2；单人镜默认取入画角色")
     ap.add_argument("--idea", default="", help="剧情描述")
     ap.add_argument("--scene", default="当前场景", help="场景名（自动适配承托面与声场）")
     ap.add_argument("--list-poses", action="store_true")
@@ -161,7 +167,7 @@ def main():
         ap.print_help()
         return
     seq = [s.strip() for s in args.shot.split(",") if s.strip()]
-    print(build_prompt(seq, args.dur, aspect=args.aspect, lines=args.lines, idea=args.idea, scene=args.scene))
+    print(build_prompt(seq, args.dur, aspect=args.aspect, lines=args.lines, idea=args.idea, scene=args.scene, speaker=args.speaker))
 
 
 if __name__ == "__main__":

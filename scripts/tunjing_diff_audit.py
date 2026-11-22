@@ -24,7 +24,7 @@ import re
 import argparse
 import hashlib
 
-from tunjing_task_source import load_task_source, source_record, validate_batch_metadata
+from tunjing_task_source import load_task_source, source_record, validate_batch_metadata, execution_board_path
 from tunjing_compiler import lint_tunjing_prompt, parse_prompt_sections, strip_dialogue
 from tunjing_audio_contract import resolve_audio_contract
 
@@ -54,6 +54,8 @@ def audit_project(project_dir):
         report["files_checked"][name] = os.path.exists(path)
     try:
         batch_file, batch_data, task_sha256 = load_task_source(project_dir)
+        execution_board = execution_board_path(project_dir, batch_data)
+        report['files_checked'][execution_board.name] = execution_board.is_file()
     except (OSError, ValueError) as exc:
         report["violations"].append(f"任务来源无效: {exc}")
         return report
@@ -85,6 +87,7 @@ def audit_project(project_dir):
     foreplay_conflicts = 0
     undress_wide_risks = 0
     spoken_dialogues = []
+    source_turns = []
     
     foreplay_ids = {"env_establish", "blocking_2s", "srs_male", "srs_female", "prop_insert", "cut_insert", "spatial_shift", "outro_solo",
                     "undress", "kiss_fondle", "breast_rub", "nipple_lick",
@@ -156,12 +159,14 @@ def audit_project(project_dir):
         prompt_without_rule = re.sub(r"Audio rule:.*?\n", "", prompt)
         d_matches = re.finditer(r"<d>(.*?)</d>", prompt_without_rule, re.IGNORECASE | re.DOTALL)
         for d_match in d_matches:
-            line_text = re.sub(r"^\s*\[[^\]\r\n]+\]\s*", "", d_match.group(1)).strip()
+            line_text = re.sub(r"^\s*\[[^\]\x0d\n]+\]\s*", "", d_match.group(1)).strip()
             if first_p in ("bj", "deepthroat", "facefuck", "cum_face") and "女子" in prompt:
                 report["violations"].append(f"镜头 {s.get('id')} ({pose}) 女方嘴部被占用，但排了女方对白！")
             if "HEADS, FACES, AND UPPER TORSO ARE STRICTLY OUT OF FRAME" in prompt and "off-screen voiceover" not in prompt:
                 report["violations"].append(f"镜头 {s.get('id')} 存在画内对白但误锁了 HEADS OUT OF FRAME（无头讲话冲突）！")
             spoken_dialogues.append((s.get("id"), line_text))
+            turn = s.get('dialogue') or {}
+            source_turns.append((turn.get('line'),turn.get('index')) if turn.get('text')==line_text else None)
 
         if "->" in pose and "LOWER BODY AND GENITALIA STRICTLY OUT OF FRAME" in prompt:
             report["violations"].append(f"镜头 {s.get('id')} ({pose}) 属于换体位转场镜，但误锁了 LOWER BODY OUT OF FRAME！")
@@ -182,20 +187,26 @@ def audit_project(project_dir):
                 report["warnings"].append(f"镜头 {s.get('id')} ({pose}) 疑似脱稿自编（未匹配到宝典真源 beats 原文）")
 
     # 2b. 剧本台词完整性契约（核对 剧本.md / 分镜.md 中的台词是否在送模提示词中零遗漏）
-    if os.path.exists(sb_file):
-        sb_content = open(sb_file, "r", encoding="utf-8").read()
-        sb_lines_all = [re.sub(r"^\s*\[[^\]\r\n]+\]\s*", "", x).strip()
+    # Keep the original author's lines in scope as well as the compiled cut list.
+    for board_file in dict.fromkeys((sb_file, str(execution_board))):
+        if not os.path.isfile(board_file):
+            continue
+        with open(board_file, encoding='utf-8-sig') as handle:
+            sb_content = handle.read()
+        sb_lines_all = [re.sub(r"^\s*\[[^\]\x0d\n]+\]\s*", "", x).strip()
                         for x in re.findall(r"<d>(.*?)</d>", sb_content, re.IGNORECASE | re.DOTALL)]
         sb_lines_all = [x for x in sb_lines_all if x]
         prompt_lines_set = {x[1] for x in spoken_dialogues}
         missing_lines = [ln for ln in sb_lines_all if ln not in prompt_lines_set]
         if missing_lines:
-            report["violations"].append(f"[台词遗漏] 分镜稿中有 {len(missing_lines)} 句台词未进入送模提示词: {missing_lines[:3]}")
+            report["violations"].append(f"[台词遗漏] {os.path.basename(board_file)} 中有 {len(missing_lines)} 句台词未进入送模提示词: {missing_lines[:3]}")
 
     # 3. 台词连续复读检查
     dup_lines = []
     for k in range(len(spoken_dialogues) - 1):
-        if spoken_dialogues[k][1] == spoken_dialogues[k+1][1]:
+        original_pair = ('storyboard_cards' in batch_data and all(source_turns[k:k+2]) and
+                         source_turns[k] != source_turns[k+1])
+        if not original_pair and spoken_dialogues[k][1] == spoken_dialogues[k+1][1]:
             dup_lines.append(f"{spoken_dialogues[k][0]} 与 {spoken_dialogues[k+1][0]} 台词重复: 「{spoken_dialogues[k][1]}」")
     if dup_lines:
         for dl in dup_lines:

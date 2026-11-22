@@ -30,6 +30,11 @@ import shutil
 import subprocess
 import sys
 
+if __package__:
+    from . import teardown_srt_to_script as s2s
+else:
+    import teardown_srt_to_script as s2s
+
 VIDEO_EXTS = ('.mp4', '.mov', '.mkv', '.flv', '.ts', '.webm')
 
 
@@ -90,11 +95,6 @@ def bind_frames_to_subtitles(video_path, sub_path, out_dir):
     if not has_ffmpeg():
         print("错误：未检测到 ffmpeg，请先安装 ffmpeg")
         sys.exit(1)
-    # 动态加载同目录的 srt_to_script 解析器
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    if script_dir not in sys.path:
-        sys.path.insert(0, script_dir)
-    from scripts import teardown_srt_to_script as s2s
 
     with io.open(sub_path, encoding='utf-8-sig', errors='replace') as fh:
         raw = fh.read()
@@ -177,15 +177,11 @@ def selftest():
     assert mid_sec_tag(65.0) == '01m05.00s', mid_sec_tag(65.0)
     # 回归检查：带 UTF-8 BOM 的字幕文件不得把首句读成乱码/丢句
     import tempfile
-    _sd = os.path.dirname(os.path.abspath(__file__))
-    if _sd not in sys.path:
-        sys.path.insert(0, _sd)
-    from scripts import teardown_srt_to_script as _s2s
     _bom = os.path.join(tempfile.gettempdir(), 'bp_bom_selftest.srt')
     with io.open(_bom, 'w', encoding='utf-8-sig') as _fh:
         _fh.write('1\n00:00:01,000 --> 00:00:02,000\n测试台词\n')
     try:
-        _items = _s2s.parse_input(_s2s.read_text(_bom), _bom)
+        _items = s2s.parse_input(s2s.read_text(_bom), _bom)
         assert len(_items) == 1 and _items[0][2] == '测试台词', _items
     finally:
         os.remove(_bom)

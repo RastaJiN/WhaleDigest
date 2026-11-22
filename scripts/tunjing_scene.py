@@ -19,9 +19,13 @@
 """
 
 import json, os, argparse, re
+from pathlib import Path
+import tunjing_blocking as blocking
+import tunjing_shot_facts as shot_facts
+import tunjing_pacing as pacing
 from tunjing_core import (
     load_poses, DE_OIL, NEG, FINISH_IDS, ORAL_ONLY, FOREPLAY, STAGING_IDS, TEASE_IDS, DRAMATIC_BODY_IDS,
-    single_shot_prompt, parse_audio_fx_mode, dialogue_needed_seconds
+    single_shot_prompt, parse_audio_fx_mode, dialogue_needed_seconds, resolve_speaker
 )
 
 BASE = os.path.dirname(os.path.abspath(__file__))
@@ -292,21 +296,55 @@ def plan_shot(pid, poses):
     return plan
 
 
+def speaker_cue(label):
+    """Parse the role separately from optional performance or off-screen direction."""
+    m = re.fullmatch(r"\s*([^()（）]+?)(?:\s*[（(]([^()（）]*)[）)])?\s*", label)
+    if not m:
+        raise ValueError(f"说话人标签无效：{label!r}")
+    return resolve_speaker(m[1]), (m[2] or "").strip()
+
+
+def is_voiceover_cue(cue):
+    return bool(re.search(r"(?:画外音|内心|心声|独白|\b(?:OS|VO|voiceover)\b)", cue, re.I))
+
+
 def prepare_dialogue_shots(shots, lines, want_total):
-    """Apply indexed dialogue and split text into independently budgeted requests."""
+    """Explicit shot numbers are binding; unnumbered turns skip empty shots and inserts."""
     line_map = {}
-    if lines:
-        for item in lines.split("|"):
-            parts = item.strip().split(":", 2)
-            match = re.fullmatch(r"\s*(?:shot\s*)?(\d+)\s*", parts[0], re.I)
-            if match and len(parts) >= 2:
-                line_map[int(match.group(1))] = (parts[1].strip(), parts[2].strip()) if len(parts) == 3 else ("女子A", parts[1].strip())
-            elif len(lines.split("|")) == 1:
-                line_map[1] = ("女子A", lines.strip())
-            else:
-                raise ValueError(f"Invalid indexed dialogue: {item!r}")
-    if any(i < 1 or i > len(shots) for i in line_map):
-        raise ValueError("Dialogue shot index is outside the scene")
+    turns = [s.strip() for s in re.split(r"[|\r\n]+", lines or "") if s.strip()]
+    sequential = None
+    available = iter(i for i, shot in enumerate(shots, 1) if shot.get("pose") not in (
+        "env_establish", "empty_cut", "corridor_cut", "prop_insert", "cut_insert"))
+    for item in turns:
+        index = re.match(r"^(?:shot\s*)?(\d+)\s*[:：]\s*", item, re.I)
+        if sequential is not None and sequential != (index is None):
+            raise ValueError("带镜号和顺排台词不能混用")
+        sequential = index is None
+        number = int(index[1]) if index else next(available, 0)
+        if not 1 <= number <= len(shots):
+            raise ValueError("Dialogue shot index is outside the scene or no speaking shot remains")
+        if number in line_map:
+            raise ValueError(f"第 {number} 镜重复分配台词；请将下一句放在另一镜")
+        value = item[index.end():] if index else item
+        parts = re.split(r"[:：]", value, maxsplit=1)
+        if len(parts) == 2:
+            role, words = parts[0].strip(), parts[1].strip()
+            actor, cue = speaker_cue(role)
+        elif index or len(turns) == 1:
+            # Preserve unlabelled legacy inputs. A reverse shot has just one visible performer.
+            actor, cue, words = (2 if shots[number-1].get("pose") == "srs_male" else 1), "", value.strip()
+        else:
+            raise ValueError("顺排多句对白必须逐句标明说话人")
+        if not words:
+            raise ValueError(f"第 {number} 镜台词为空")
+        role = "女子A" if actor == 1 else "男子A"
+        line_map[number] = (f"{role}({cue})" if cue else role, words)
+    for number, shot in enumerate(shots,1):
+        d = shot.get('dialogue')
+        if d is not None:
+            if turns: raise ValueError('源稿对白已绑定原说话人；不能用 --lines 重写')
+            label = d['actor'] + ('('+d['cue']+')' if d['cue'] else '')
+            line_map[number] = (label, d['text'])
     expanded, mapped = [], {}
     for old_index, shot in enumerate(shots, 1):
         if old_index not in line_map:
@@ -316,8 +354,11 @@ def prepare_dialogue_shots(shots, lines, want_total):
         if shot.get("pose") == "env_establish":
             raise ValueError("An empty establishing shot cannot carry character dialogue")
         if shot.get("pose") in ("srs_male", "srs_female"):
-            desired = "srs_female" if ("女" in speaker or "S1" in speaker or "Subject 1" in speaker) else "srs_male"
+            actor, cue = speaker_cue(speaker)
+            desired = shot["pose"] if is_voiceover_cue(cue) else ("srs_female" if actor == 1 else "srs_male")
             if shot["pose"] != desired:
+                if shot.get("blocking_state", {}).get("adopted"):
+                    raise ValueError(f"SHOT-{old_index:02d} 已采用的取景与画内说话人冲突；请回分镜改取景或标注画外音")
                 original_pose = shot["pose"]
                 entry = load_poses()[desired]
                 shot = dict(shot, pose=desired, pose_zh=entry.get("nameZh", desired), pose_en=entry.get("nameEn", desired),
@@ -331,11 +372,18 @@ def prepare_dialogue_shots(shots, lines, want_total):
                 chunk += character
         if chunk:
             chunks.append(chunk)
+        if len(chunks) > 1 and shot.get('action_steps'):
+            raise ValueError('Dialogue would replay a reviewed action/exit. Split it in the storyboard first.')
         for part_index, part in enumerate(chunks):
             current = dict(shot)
+            if 'dialogue' in shot and len(chunks)>1:
+                current['dialogue'] = dict(shot['dialogue'], part=part_index, part_text=part)
             current["required_sec"] = max(min(float(shot.get("required_sec") or 0), 12.25), dialogue_needed_seconds(part))
             if part_index:
                 current["dialogue_continuation"] = True
+                if "blocking_state" in current:
+                    p = current["blocking_state"]
+                    current["blocking_state"] = dict(p, start=p["end"], source="同场继承", action="", reframe="", prior_left=p["screen_left"])
             expanded.append(current)
             mapped[len(expanded)] = (speaker, part)
     shots[:] = expanded
@@ -445,7 +493,7 @@ def allocate_exact_h3_frames(shots, want_total_sec):
     return shots, round(t_frames / 24.0, 2)
 
 
-def build_scene(chain, total_sec, poses):
+def build_scene(chain, total_sec, poses, recipes=None, decisions=None):
     """
     全剧集智能拆镜与 Auto-DP 运镜编排：
     1) 支持文戏/转场原语与 55 套肉戏真源自由混排，绝不强制固定套路
@@ -453,12 +501,50 @@ def build_scene(chain, total_sec, poses):
     3) 相邻肉戏体位之间自动插入物理换位桥（文戏原语与正反打之间直接硬切，不乱塞换体位桥）
     4) Auto-DP 强制消除连续同景别或连续静态机位，执行工作景别阶梯弹跳（Working Shot Ladder）与接戏过继说明
     """
-    if not chain or any(pid not in poses for pid in chain):
+    recipes = recipes or {}
+    if not chain or any(pid not in poses and pid not in recipes for pid in chain):
         raise ValueError("Scene requires known pose identifiers")
     if not __import__("math").isfinite(total_sec) or total_sec <= 0:
         raise ValueError("Scene duration must be positive and finite")
+    from tunjing_solo import PROP_IDS
     shots = []
     for i, pid in enumerate(chain):
+        decision = (decisions or {}).get(i)
+        metadata = {k:decision[k] for k in ('source_scene','cast','dialogue','staging_note') if decision and k in decision}
+        if decision and 'staging' not in decision:
+            from tunjing_pose_choice import direction
+            cue = direction(decision)
+            visible = decision['visual'].rstrip('.') + '.'
+            # The entry/transition instruction precedes the pose; the exit is last.
+            action = f"{visible} {cue}." if cue else visible
+            if decision['transition'] == 'one_take':
+                shot = shots[-1]
+                shot['action_steps'].append(decision)
+                shot['action_decision'] = decision  # endpoint, retained for single-step consumers
+                shot['pose'] = pid if pid in poses else 'blocking_2s'
+                shot['pose_zh'] += ' → ' + poses.get(pid,{}).get('nameZh',pid)
+                shot['text_en'] += ' Then: ' + action
+                shot['text'] = shot['text_en']
+                shot['required_sec'] = 2.0 * len(shot['action_steps'])
+            else:
+                size,cam = decision['framing']['size'],decision['framing']['cam']
+                shot = dict(pose=pid if pid in poses else 'blocking_2s', pose_zh=poses.get(pid,{}).get('nameZh',pid),
+                            **metadata, pose_en=poses.get(pid,{}).get('nameEn',pid), text=action,text_en=action,size=size,cam=cam,type='action',
+                            action_steps=[decision],action_decision=decision,source_line=decision['source_line'])
+                if pid in recipes: shot['custom_recipe']=pid
+                shots.append(shot)
+            continue
+        if decision: metadata['source_line'] = decision['line']
+        note = metadata.get('staging_note')
+        if note:
+            shots.append(dict(**metadata,pose=pid,pose_zh=poses[pid]['nameZh'],pose_en=poses[pid]['nameEn'],
+                              text=note['visual'],text_en=note['visual'],size=note['size'],cam=note['cam'],type='staging'))
+            continue
+        if pid in recipes:
+            action, size, cam = recipes[pid]
+            shots.append(dict(pose="blocking_2s", custom_recipe=pid, **metadata, pose_zh=pid, pose_en=pid,
+                              text=action, text_en=action, size=size, cam=cam, type="staging"))
+            continue
         p = poses.get(pid)
         if not p:
             continue
@@ -466,16 +552,16 @@ def build_scene(chain, total_sec, poses):
         name_en = p.get("nameEn") or pid
         beats_zh = p.get("beatsZh") or [name]
         beats_en = p.get("beatsEn") or [name_en]
-        plan = plan_shot(pid, poses)
+        plan = [("mcu", "static_side")] if pid in PROP_IDS else plan_shot(pid, poses)
         n_beats = max(1, min(len(beats_zh), len(plan)))
 
-        for k in range(n_beats):
+        for k in range(1 if decision else n_beats):
             size, cam = plan[k]
             beat_zh = beats_zh[k] if k < len(beats_zh) else beats_zh[-1]
             beat_en = beats_en[k] if k < len(beats_en) else beats_en[-1]
             shot_type = "staging" if pid in STAGING_IDS else "action"
             shots.append({
-                "pose": pid, "pose_zh": name, "pose_en": name_en,
+                **metadata, "pose": pid, "pose_zh": name, "pose_en": name_en,
                 "size": size, "cam": cam,
                 "text": beat_zh,
                 "text_en": beat_en,
@@ -483,10 +569,11 @@ def build_scene(chain, total_sec, poses):
             })
 
         # 仅当当前与下一个均为非调度类肉戏体位、且体位发生变化时，才插入物理换位转场桥
-        if i < len(chain) - 1:
+        if i < len(chain) - 1 and not (decisions or {}).get(i+1):
             nxt_id = chain[i + 1]
             if (pid not in STAGING_IDS and nxt_id not in STAGING_IDS
-                    and pid != nxt_id and nxt_id not in FINISH_IDS):
+                    and pid not in PROP_IDS and nxt_id not in PROP_IDS
+                    and nxt_id not in recipes and pid != nxt_id and nxt_id not in FINISH_IDS):
                 nxt_p = poses.get(nxt_id, {})
                 nxt = nxt_p.get("nameZh", nxt_id)
                 nxt_en = nxt_p.get("nameEn", nxt_id)
@@ -510,6 +597,8 @@ def build_scene(chain, total_sec, poses):
     # 2) 极特写(macro)与全景(wide)作为标记镜头，用完一镜后若下一镜仍为同类极端景别，自动弹回工作景别(mcu/cu)
     dynamic_cycle = ["push_tension", "ots_depth", "tilt_up_desire", "arc_subtle", "handheld_breath", "high_downward", "low_upward"]
     for idx in range(1, len(shots)):
+        if shots[idx].get("custom_recipe") or shots[idx].get("action_decision") or shots[idx].get("staging_note"):
+            continue
         prev_size = shots[idx - 1]["size"]
         curr_size = shots[idx]["size"]
         if prev_size == "macro" and curr_size == "macro":
@@ -529,7 +618,10 @@ def build_scene(chain, total_sec, poses):
         "J-Cut声先画后（前镜尾音延入本镜起幅动作）",
     ]
     for idx, s in enumerate(shots):
-        if idx == 0:
+        if s.get('action_steps'):
+            first = s['action_steps'][0]
+            s['handoff'] = f"{first['transition']}: {first['pre']} → {first['选择']}"
+        elif idx == 0:
             s["handoff"] = "开场首镜建立：0.00s 直接锁定空间光影与初始姿态"
         else:
             prev_s = shots[idx - 1]
@@ -605,7 +697,8 @@ def resolve_slot_refs(shot_size, pose_id, is_nude_state=True, asset_dir=""):
         return "C_empty_cut", ["s1", "s1", "s1"], [s_img, s_img, s_img], lora_weight, spatial_zone
     if first_p in ("srs_male", "loosen_tie", "rub_temple"):
         return "B_solo_male", ["s1", "m1", "s1"], [s_img, m_img, s_img], lora_weight, spatial_zone
-    if first_p in ("srs_female", "outro_solo", "back_arch_lean", "turn_evade", "collapse_sob", "fix_attire", "shoulder_strap_slide", "solo_masturbate", "finger_masturbate") or (
+    from tunjing_solo import PROP_IDS
+    if first_p in PROP_IDS or first_p in ("srs_female", "outro_solo", "back_arch_lean", "turn_evade", "collapse_sob", "fix_attire", "shoulder_strap_slide", "solo_masturbate", "finger_masturbate") or (
         shot_size == "face" and first_p not in ("bj", "squat_bj", "prone_bj", "deepthroat", "head_thrust", "facefuck")
     ):
         return "B_solo_female", ["f1", "s1", "s1"], [f_img, s_img, s_img], lora_weight, spatial_zone
@@ -623,7 +716,7 @@ def h3_frames(sec):
 
 
 def save_project_artifacts(out_dir, shots, actual_total, want_total, lines="",
-                           idea="", scene="卧室", pose_names="", aspect="9:16"):
+                           idea="", scene="卧室", pose_names="", aspect="9:16", scene_id=None, script_path=None, pace_driver=None, pace_overrides=None, pace=None, actor=None, chain=None, review=None):
     """一键在项目目录落盘：分镜.md + 视频提示词.md + 批量任务.json（吞鲸 v4.0 规范，横竖屏双轨）
     aspect: '9:16' 竖屏 / '16:9' 横屏 / '1:1' 方屏，决定景别/机位/运镜/分辨率整套构图语言。
     """
@@ -631,53 +724,22 @@ def save_project_artifacts(out_dir, shots, actual_total, want_total, lines="",
     os.makedirs(out_dir, exist_ok=True)
     asset_dir = os.path.join(out_dir, "00_资产")
 
-    # ── 场次轴线决议器 (Scene Spatial Axis Ledger) ──
-    # 彻底杜绝机械死板的固定方位；接手已有项目时读取账本保持一致，新项目从剧本/分镜动态确立轴线
-    axis_file = os.path.join(out_dir, ".tunjing_axis.json")
-    bible_file = os.path.join(out_dir, "series_bible.json")
-    resolved_female_side = "left"  # 默认女左男右
-
-    if os.path.exists(axis_file):
-        try:
-            with open(axis_file, "r", encoding="utf-8") as af:
-                resolved_female_side = json.load(af).get("female_screen_side", "left")
-        except Exception:
-            pass
-    elif os.path.exists(bible_file):
-        try:
-            with open(bible_file, "r", encoding="utf-8") as bf:
-                resolved_female_side = json.load(bf).get("spatial_axis", {}).get("female_screen_side", "left")
-        except Exception:
-            pass
-    else:
-        # 扫描剧本文本或分镜首镜是否含有方向暗示
-        script_corpus = str(lines) + " " + str(idea)
-        script_path = os.path.join(out_dir, "剧本.md")
-        if os.path.exists(script_path):
-            try:
-                with open(script_path, "r", encoding="utf-8") as sf:
-                    script_corpus += " " + sf.read()
-            except Exception:
-                pass
-        if any(k in script_corpus for k in ("男左女右", "男子A在左", "男主在左", "女子A在右", "女主在右")):
-            resolved_female_side = "right"
-        elif any(k in script_corpus for k in ("女左男右", "女子A在左", "女主在左", "男子A在右", "男主在右")):
-            resolved_female_side = "left"
-
-        # 首次建立即永久写入账本锁死，后续重新跑或加镜头绝对保持一致
-        try:
-            with open(axis_file, "w", encoding="utf-8") as af:
-                json.dump({
-                    "female_screen_side": resolved_female_side,
-                    "male_screen_side": "left" if resolved_female_side == "right" else "right",
-                    "locked_at": datetime.datetime.now().isoformat()
-                }, af, ensure_ascii=False, indent=2)
-        except Exception:
-            pass
-
-    # 将锁定的轴线赋予全集每一个镜头
-    for s in shots:
-        s["female_screen_side"] = resolved_female_side
+    # Resolve on the storyboard's shot indices, before splitting requests for dialogue.
+    root = Path(out_dir)
+    sources = blocking.input_hashes(root, script_path, '分镜.md', False)
+    adopted = blocking.prepare(shots, scene_name=scene, project=out_dir,
+                               script_path=script_path, scene_id=scene_id)
+    if any(s.get('action_steps') and s['blocking_state'].get('action') for s in shots):
+        raise ValueError('Adopted blocking action conflicts with the reviewed pose; reconcile it in the storyboard')
+    shots[:] = pacing.apply(shots, pace_driver, actor=actor, pace=pace, overrides=pace_overrides)
+    for shot in shots:
+        if shot.get("custom_recipe"):
+            if shot["blocking_state"].get("adopted"):
+                raise ValueError("Local recipes require a non-adopted storyboard")
+            shot["blocking_state"]["action"] = shot["text_en"]
+    sb_path = Path(out_dir) / (blocking.EXEC_BOARD if adopted else "分镜.md")
+    if adopted and sb_path.exists() and not blocking.untouched_board(sb_path.read_text(encoding="utf-8-sig")):
+        raise ValueError(f"执行分镜已被人工修改；先保全或采用这份修改：{sb_path.name}")
 
     landscape = is_landscape(aspect)
     _sz_zh = pick_dict(landscape, SHOT_SIZES_LANDSCAPE, SHOT_SIZES)
@@ -717,6 +779,24 @@ def save_project_artifacts(out_dir, shots, actual_total, want_total, lines="",
 
     line_map, actual_total = prepare_dialogue_shots(shots, lines, want_total)
     total_frames_sum = sum(s["frames"] for s in shots)
+    # Freeze after shot grouping, blocking and dialogue allocation. Prompt assembly
+    # below consumes this exact snapshot, not prose or a second pass of a selector.
+    from tunjing_pose_choice import BOARD, file_hash, prompt_hash, write_json
+    reviewed_metadata = {}
+    binding = {}
+    frozen = None
+    if chain is not None:
+        frozen = dict(chain=chain, actual_total=actual_total, shots=shots, **(review or {}))
+        if review is not None:
+            binding = dict(review['review_inputs'])
+            if any(file_hash(root/name) != digest for name,digest in binding.items()):
+                raise ValueError('Pose review inputs changed during compilation')
+        write_json(root/BOARD, frozen)
+        frozen = json.loads((root/BOARD).read_text('utf8'))
+        shots = frozen['shots']
+        if review is not None:
+            reviewed_metadata = {'storyboard_cards': frozen['cards'],
+                                 'pose_input_hashes': {**binding, BOARD: file_hash(root/BOARD)}}
     sb_lines[1] = f"- 目标总时长：{want_total}s | 实际闭合总时长：{actual_total}s | 总帧数：{total_frames_sum}帧 | 总镜数：{len(shots)} 镜 | 画幅：{orient_label} {res['width']}x{res['height']}"
     prompt_lines[1] = f"- 场景：{scene} | 总镜数：{len(shots)} 镜 | 总帧数：{total_frames_sum}帧 | 画幅：{orient_label}"
 
@@ -749,17 +829,24 @@ def save_project_artifacts(out_dir, shots, actual_total, want_total, lines="",
             if emo_m:
                 explicit_emo = emo_m.group(1).strip()
                 spk = re.sub(r"[（(].*?[）)]", "", spk).strip()
-            if first_p in ("bj", "squat_bj", "prone_bj", "deepthroat", "facefuck", "cum_face") and "女" in spk:
-                pass
-            elif s["dur"] >= 2.0:
-                shot_speaker = spk
-                shot_line = txt
+            shot_speaker = spk
+            shot_line = txt
 
         tier_label, ref_keys, ref_imgs, lora_w, spatial_zone = resolve_slot_refs(
             s["size"], s["pose"], is_nude_state=is_nude_state, asset_dir=asset_dir
         )
+        if len(s.get('action_steps', ())) > 1:
+            # Slot membership is the union of visible performers over the take,
+            # not the cast of its final step. Keep the opening framing/camera.
+            for beat in s['action_steps']:
+                slots = resolve_slot_refs(beat['framing']['size'], beat['选择'], is_nude_state, asset_dir)
+                if slots[0].startswith('A_two_shot'):
+                    tier_label, ref_keys, ref_imgs, lora_w, spatial_zone = slots
+                    break
         if len(ref_imgs) >= 4 and ref_imgs[3]:
             s["prop_ref"] = ref_imgs[3]
+        from tunjing_prose import named_references
+        ref_imgs = named_references(s,ref_imgs,is_nude_state)
 
         # 优先采用台词括号显式指定的情绪（如 生气/委屈/忧伤/冷笑），否则按台词语义与剧集推进阶段自动感知
         prog = i / max(1, len(shots))
@@ -774,8 +861,9 @@ def save_project_artifacts(out_dir, shots, actual_total, want_total, lines="",
 
         prompt_text = single_shot_prompt(
             s, i - 1, len(shots), s["dur"], size_desc_en, cam_desc_en,
-            lines=shot_line, speaker=shot_speaker, idea=idea, scene=scene, pose_names=pose_names,
-            emotion=auto_emotion, tier=tier_label, has_audio_refs=False, aspect=normalize_aspect(aspect)
+            lines=shot_line, speaker=shot_speaker, idea=idea, scene=s["blocking_state"]["location"], pose_names=pose_names,
+            emotion=auto_emotion, voiceover=is_voiceover_cue(explicit_emo),
+            tier=tier_label, has_audio_refs=False, aspect=normalize_aspect(aspect)
         )
 
         extra_tags = []
@@ -797,11 +885,21 @@ def save_project_artifacts(out_dir, shots, actual_total, want_total, lines="",
         sb_lines.append(f"- 景别: {s['size']} — {size_desc_zh}")
         sb_lines.append(f"- 机位: {s['cam']} — {cam_desc_zh}")
         sb_lines.append(f"- 姿势: `{s['pose']}` ({s['pose_zh']}) {tag_str}")
-        sb_lines.append(f"- 槽位分级: `{tier_label}` (空间锚点 `{spatial_zone}`: `{ref_imgs}` | V5-ref2va权重: `{lora_w}`)")
-        sb_lines.append(f"- 接戏过继: {s.get('handoff', '顺接动作')}")
-        sb_lines.append(f"- 动作: {s['text']}")
+        sb_lines.append(shot_facts.slot_prefix(tier_label, spatial_zone, ref_imgs) + f"V5-ref2va权重: `{lora_w}`)")
+        plan = s["blocking_state"]
+        audio_fx = parse_audio_fx_mode(shot_speaker, shot_line, voiceover=is_voiceover_cue(explicit_emo))
+        if adopted or review is not None:
+            actor_id = f'S{resolve_speaker(shot_speaker)}' if shot_line else None
+            sb_lines.append(shot_facts.input_note(plan['source_shot'], ref_keys, audio_fx, actor_id,
+                                                  is_voiceover_cue(explicit_emo)))
+        sb_lines.append(blocking.board_note(plan))
+        action = plan['action'] or (blocking.neutral_action(first_p) if first_p in blocking.DIALOGUE else s['text'])
+        if s.get('staging_note'):
+            action = s['staging_note']['source']
+        sb_lines.append(f"- 动作: {action}")
         if shot_line:
-            sb_lines.append(f"- 台词: <d>[Chinese]{shot_line}</d>")
+            identity = s.get('dialogue',{}).get('speaker',shot_speaker)
+            sb_lines.append(f"- 台词: {identity}：<d>[Chinese]{shot_line}</d>")
         # 肉戏声音反馈标注：肉戏镜必须显式写出呻吟/浪叫/粗喘，满足肉戏公式死锁并供监制审阅
         if first_p not in STAGING_IDS:
             _moan = "女主呻吟/浪叫与男主粗喘" if shot_speaker == "女子A" or first_p not in ("srs_male",) else "女主呻吟/浪叫"
@@ -810,6 +908,12 @@ def save_project_artifacts(out_dir, shots, actual_total, want_total, lines="",
 
         prompt_lines.append(f"### SHOT-{i:02d} ({s['dur']}s | {frames_val}f | {s['size']} | {s['cam']} | {s['pose']} | LoRA={lora_w})")
         prompt_lines.append("```text")
+        if 'action_steps' in s:
+            d = s['action_steps'][0]
+            sb_lines.append(f"- 已决调度: {d['source_shot']} | {d['entry_mode']} | foreplay={d['foreplay_mode']} | "
+                            + ' → '.join(v['选择'] for v in s['action_steps']))
+        if pacing.prompt_clause(s):
+            prompt_text += "\n" + pacing.prompt_clause(s)
         prompt_lines.append(prompt_text)
         prompt_lines.append("```")
         prompt_lines.append("")
@@ -822,6 +926,8 @@ def save_project_artifacts(out_dir, shots, actual_total, want_total, lines="",
             "shot_id": f"shot_{i:02d}",
             "filename_prefix": std_prefix,
             "title": f"镜头 {i:02d} · {s['pose_zh']} ({s['size']})",
+            **({"action_decision": s["action_decision"], "action_steps": s["action_steps"]} if "action_decision" in s else {}),
+            **{k:s[k] for k in ('source_line','source_scene','cast','dialogue','staging_note') if k in s},
             "prompt": prompt_text,
             "negative_prompt": NEG,
             "duration": s["dur"],
@@ -832,7 +938,9 @@ def save_project_artifacts(out_dir, shots, actual_total, want_total, lines="",
             "camera_motion": s["cam"],
             "shot_size": s["size"],
             "pose": s["pose"],
+            **({"custom_recipe": s["custom_recipe"]} if "custom_recipe" in s else {}),
             "tier": tier_label,
+            "blocking_state": plan,
             "spatial_zone": spatial_zone,
             "handoff": s.get("handoff", ""),
             "wardrobe_state": "nude" if is_nude_state else "dressed",
@@ -840,32 +948,46 @@ def save_project_artifacts(out_dir, shots, actual_total, want_total, lines="",
             "lora_mystic_strength": lora_w,
             "clip_model": "qwen3vl_32b_minimax_h3_ultra_uncensored_heretic_int8_convrot.safetensors",
             "references": ref_keys,
-            "audio_fx_mode": parse_audio_fx_mode(shot_speaker, shot_line, voiceover=("心声" in explicit_emo or "独白" in explicit_emo or "OS" in explicit_emo.upper())),
+            "audio_fx_mode": audio_fx,
             "ref_images": ref_imgs,
             "audio_mode": "H3_native_audio",
             "audio_reference_required": False,
             "ref_audios": []
         })
 
-    while macro_tag_idx < 3:
-        macro_tag_idx += 1
-        sb_lines.append(f"<!-- 导演备注：本段包含第 {macro_tag_idx} 处结合部微距 (macro pelvic) 焦点锁定 -->")
 
-    sb_path = os.path.join(out_dir, "分镜.md")
     pr_path = os.path.join(out_dir, "视频提示词.md")
     bj_path = os.path.join(out_dir, "批量任务.json")
 
-    with open(sb_path, "w", encoding="utf-8") as f:
-        f.write("\n".join(sb_lines))
+    if sources != blocking.input_hashes(root, script_path, '分镜.md', False):
+        raise ValueError('采用稿在编译期间发生变更；请重新编译')
     with open(pr_path, "w", encoding="utf-8") as f:
         f.write("\n".join(prompt_lines))
 
+    if review is not None and frozen is not None:
+        # Seal the exact compiled prompt strings. A schema-valid replacement
+        # cannot be re-audited as if it came from the confirmed storyboard.
+        frozen['prompt_sha256'] = [prompt_hash(row['prompt']) for row in batch_shots]
+        write_json(root/BOARD, frozen)
+        reviewed_metadata['pose_input_hashes'].update({BOARD:file_hash(root/BOARD),
+                                                     '视频提示词.md':file_hash(Path(pr_path))})
+
+    # Bind the independently resolved sources, not a digest of the outgoing row.
+    sources.pop(sb_path.name, None)
+    if adopted or review is not None:
+        sb_lines.insert(0, shot_facts.header(sources, reviewed_metadata.get('pose_input_hashes')))
+    with open(sb_path, "w", encoding="utf-8") as f:
+        f.write(blocking.marker("\n".join(sb_lines)))
+
     now_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
     task_obj = {
+        **reviewed_metadata,
         "app": "h3-batch",
         "schema": "h3-drama-task",
         "version": 4,
         "engine": "tunjing-baodian",
+        "execution_board": sb_path.name,
+        "blocking_input_hashes": {**sources, sb_path.name: file_hash(sb_path)},
         "workflow_template": "references/workflows/tunjing_v4_master_api.json",
         "project": os.path.basename(os.path.abspath(out_dir)),
         "aspect": normalize_aspect(aspect),
@@ -885,11 +1007,13 @@ def save_project_artifacts(out_dir, shots, actual_total, want_total, lines="",
     print(f"[✓] 已落盘分镜表: {sb_path}")
     print(f"[✓] 已落盘提示词: {pr_path}")
     print(f"[✓] 已落盘吞鲸 v4.0 批量任务 JSON ({len(batch_shots)} 镜 / {total_frames_sum} 帧): {bj_path}")
-    return sb_path, pr_path, bj_path
+    return str(sb_path), pr_path, bj_path
 
 
 def print_table(shots, actual_total, want_total, lines="", idea="", scene="卧室",
-                pose_names="", emit_prompts=True, aspect="9:16"):
+                pose_names="", emit_prompts=True, aspect="9:16", scene_id=None, script_path=None, pace_driver=None, pace_overrides=None, pace=None, actor=None):
+    blocking.prepare(shots, scene_name=scene, script_path=script_path, scene_id=scene_id)
+    shots[:] = pacing.apply(shots, pace_driver, actor=actor, pace=pace, overrides=pace_overrides)
     line_map, actual_total = prepare_dialogue_shots(shots, lines, want_total)
     print("=" * 100)
     print(f"🐳 吞鲸宝典 v4.0 · 全剧集 Auto-DP 拆镜表    目标 {want_total}s / 实际 {actual_total}s / 共 {len(shots)} 镜")
@@ -921,9 +1045,11 @@ def print_table(shots, actual_total, want_total, lines="", idea="", scene="卧�
         cam_dict = pick_dict(is_landscape(aspect), CAMS_EN_LANDSCAPE, CAMS_EN)
         cam_desc_en = cam_dict.get(s["cam"], cam_dict["push_tension"])
         shot_line = ""
-        shot_speaker = "女子A"
+        shot_speaker, explicit_emo = "女子A", ""
         if i in line_map:
             spk, txt = line_map[i]
+            actor, explicit_emo = speaker_cue(spk)
+            spk = "女子A" if actor == 1 else "男子A"
             if s["pose"] in ("bj", "squat_bj", "prone_bj", "deepthroat", "facefuck", "cum_face") and "女" in spk:
                 pass
             elif s["dur"] >= 2.0:
@@ -933,7 +1059,8 @@ def print_table(shots, actual_total, want_total, lines="", idea="", scene="卧�
         prompt = single_shot_prompt(
             s, i - 1, len(shots), s["dur"], size_desc_en, cam_desc_en,
             lines=shot_line, speaker=shot_speaker, idea=idea, scene=scene, pose_names=pose_names,
-            tier=tier_label, aspect=normalize_aspect(aspect)
+            tier=tier_label, emotion=explicit_emo or "default", voiceover=is_voiceover_cue(explicit_emo),
+            aspect=normalize_aspect(aspect)
         )
         print(f"\n{'─' * 100}")
         print(f"### SHOT {i:02d}  {s['dur']}s ({s['t0']}-{s['t1']}s)  "
@@ -949,6 +1076,13 @@ def main():
     ap.add_argument("--lines", default="", help="本段台词")
     ap.add_argument("--idea", default="", help="剧情核心张力描述")
     ap.add_argument("--scene", default="卧室", help="场景名")
+    ap.add_argument("--scene-id", help="稳定场次 ID；同一地点可有多个场次")
+    ap.add_argument("--card-offset", type=int, help="First source action in resolved chain")
+    ap.add_argument("--script-file", help="采用的剧本路径；默认项目内的剧本.md")
+    ap.add_argument("--pace-driver", choices=sorted(pacing.PACE), help="Legacy tempo only")
+    ap.add_argument("--motion-actor", choices=sorted(pacing.ACTORS), help="可选默认动作发起者 S1/S2；仅作用于物理连续动作")
+    ap.add_argument("--pace", nargs="+", choices=sorted(pacing.PACE), help="可选默认有序节奏列表，如 slow steady fast")
+    ap.add_argument("--pace-overrides", help="每镜 JSON，如 [{\"shot\":2,\"actor\":\"S2\",\"pace\":[\"slow\",\"fast\"]}]")
     ap.add_argument("--out-dir", default="", help="可选：一键将 分镜.md + 视频提示词.md + 批量任务.json 落盘至指定项目目录")
     ap.add_argument("--aspect", default="9:16", help="画幅：9:16 竖屏(默认) / 16:9 横屏 / 1:1 方屏；决定景别/机位/运镜/分辨率整套构图语言")
     ap.add_argument("--table-only", action="store_true", help="只出拆镜表，不出提示词")
@@ -968,22 +1102,44 @@ def main():
         return
 
     chain = [x.strip() for x in args.chain.split(",") if x.strip()]
-    unknown = [pid for pid in chain if pid not in poses]
-    if not chain or unknown:
-        ap.error(f"Unknown or empty pose chain: {unknown}")
+    from tunjing_local_recipe import resolve
+    try:
+        recipes = resolve(chain, poses, args.out_dir)
+    except (ValueError, OSError) as exc:
+        ap.error(str(exc))
+    if not chain:
+        ap.error("Empty pose chain")
     normalize_aspect(args.aspect)
-    shots, actual = build_scene(chain, args.total, poses)
+    from tunjing_pose_choice import CARD, PLAN, reviewed_plan, file_hash
+    out = Path(args.out_dir) if args.out_dir else None
+    review = None
+    decisions = {}
+    script_bound = out and (args.script_file or (out/'剧本.md').exists())
+    if args.card_offset is not None or script_bound or out and any((out/name).exists() for name in (CARD,PLAN)):
+        if not out or args.card_offset not in (None,0): ap.error('Review requires a project and the exact source chain')
+        try:
+            binding = {k:file_hash(out/k) for k in (CARD, PLAN, 'pose_recipes.json')}
+            expected, decisions, cards = reviewed_plan(out,args.script_file,args.scene,args.scene_id)
+            if expected != chain: raise ValueError('Requested chain differs from the reviewed storyboard')
+            if any((args.pace_driver,args.pace_overrides,args.motion_actor,args.pace)):
+                raise ValueError('Edit the reviewed card, not a downstream pacing override')
+            if not any('recipe_hash' in step for card in cards for step in card['steps']):
+                del binding['pose_recipes.json']
+            review = {'cards':cards, 'review_inputs':binding}
+        except (OSError,ValueError) as exc: ap.error(str(exc))
+    shots, actual = build_scene(chain, args.total, poses, recipes, decisions)
     pose_names = "→".join(poses.get(p, {}).get("nameZh", p) for p in chain)
 
-    if args.out_dir:
-        save_project_artifacts(args.out_dir, shots, actual, args.total,
-                               lines=args.lines, idea=args.idea,
-                               scene=args.scene, pose_names=pose_names,
-                               aspect=args.aspect)
+    if out:
+        save_project_artifacts(out, shots, actual, args.total,
+                               lines=args.lines, idea=args.idea, scene=args.scene, pose_names=pose_names,
+                               aspect=args.aspect, scene_id=args.scene_id, script_path=args.script_file,
+                               pace_driver=args.pace_driver, pace_overrides=pacing.parse_overrides(args.pace_overrides),
+                               pace=args.pace, actor=args.motion_actor, chain=chain, review=review)
     else:
         print_table(shots, actual, args.total, lines=args.lines, idea=args.idea,
                     scene=args.scene, pose_names=pose_names,
-                    emit_prompts=not args.table_only, aspect=args.aspect)
+                    emit_prompts=not args.table_only, aspect=args.aspect, scene_id=args.scene_id, script_path=args.script_file)
 
 
 if __name__ == "__main__":

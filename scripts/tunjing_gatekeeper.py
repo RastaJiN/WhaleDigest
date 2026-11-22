@@ -11,8 +11,7 @@ import re
 from tunjing_task_source import (load_task_source, source_record, refresh_status,
                                  require_source_audit, TaskSourceError, validate_batch_metadata,
                                  stage_record, gate_evidence, validate_asset_image)
-from tunjing_compiler import lint_tunjing_prompt
-from tunjing_audio_contract import resolve_audio_contract
+from tunjing_compiler import lint_task_prompt
 
 STAGE_NAMES = {
 1: "第 1 步：角色母版与资产建库 (Asset Foundation)",
@@ -89,30 +88,62 @@ def audit_step_2(project_dir):
     with open(script_file, "r", encoding="utf-8") as f:
         content = f.read()
         
-    # 检查是否包含核心特征
-    if "第一幕" not in content or "第二幕" not in content:
-        return False, "剧本门禁未通过：剧本必须包含清晰的幕次结构（至少具备【第一幕】与【第二幕】）！"
-    
-    # 台词标签检查：有对白必须用 <d> 包裹；纯动作戏（纯肉戏无对白）不强求台词标签
-    # 判定「真有对白」= 存在「角色名：台词」模式（全角冒号后跟中文、且以句末标点收尾），
-    # 排除「`体位ID` 中文名」这种反引号行（流水线写回剧本的调度链，不是对白）。
-    dialogue_lines = []
-    for ln in content.splitlines():
-        s = ln.strip()
-        if s.startswith("- `") or s.startswith("`"):
-            continue  # 体位调度链标注行，不是对白
-        if re.search(r'[:：]\s*[^：:]*[\。\！\？\，]', s):
-            dialogue_lines.append(s)
-    if any(not re.search(r"<d>\s*(?:\[[^]]+\])?\s*[^<\s].*?</d>", line) for line in dialogue_lines):
-        return False, "剧本门禁未通过：检测到对白但未用 <d>[Chinese]...</d> 标签包裹！有对白必须加台词标签（防台词烫印成字幕）；纯动作戏无对白可豁免。"
+    from pathlib import Path
+    from tunjing_pose_choice import PLAN, reviewed_plan, authored_text
+    import tunjing_prose as prose
+    receipt = Path(project_dir)/PLAN
+    planned = None
+    if receipt.is_file():
+        try:
+            plan = json.loads(receipt.read_text('utf8'))
+            _, rows, _ = reviewed_plan(project_dir, script_file, plan['scene'], plan.get('scene_id'))
+            planned = [row for row in rows.values() if row.get('source_line') or row.get('line')]
+        except (KeyError, OSError, ValueError) as exc:
+            return False, f'分镜确认已失效：{exc}'
+
+    authored = authored_text(content)
+    if planned is not None:
+        alias_file = Path(project_dir)/'角色映射.json'
+        aliases = json.loads(alias_file.read_text('utf-8-sig')) if alias_file.is_file() else {}
+        body = prose.screenplay(authored, aliases)
+    else:
+        body = list(prose.source_rows(authored))
+    # Legacy explicit acts, or distinct titled sections actually bound to shots.
+    if not ('第一幕' in authored and '第二幕' in authored):
+        bound = {r.get('source_line') or r.get('line') for r in (planned or [])}
+        sections = {r['scene'] for r in body if r['scene'] and r['line'] in bound}
+        if not sections:
+            return False, '剧本缺少清晰幕次或与执行镜头对应的场次结构'
+
+    seen_turns=[]
+    for row in body:
+        raw = row['raw']
+        turns = row['turns'] if 'turns' in row else prose.dialogue_on(raw)
+        if turns:
+            seen_turns.extend(turns)
+        if (len(re.findall(r'<d>',raw,re.I)) != len(list(prose.D_TAG.finditer(raw))) or
+                len(re.findall(r'</d>',raw,re.I)) != len(list(prose.D_TAG.finditer(raw))) or
+                any(not d['text'].strip() for d in turns)):
+            return False, f"第 {row['line']} 行对白标签无效"
+        if not prose.D_TAG.search(raw):
+            # A standalone source name/cue is different from a colon inside prose.
+            s = re.sub(r'^\s*(?:镜头?|SHOT)[ _-]*\d+\s*[:：]\s*','',raw,flags=re.I)
+            apparent = re.match(r'^(?:[-*]\s*)?(?:\*\*)?[\w·-]{1,12}(?:[（(][^）)]*[）)])?(?:\*\*)?[:：]\s*(?:\*\*)?[^\s].*[。！？?!]$',s)
+            if (turns or apparent) and not (planned and turns):
+                return False,'检测到未绑定的对白；请标明说话人并用 <d>[Chinese]...</d> 包裹'
+    if planned is not None:
+        imported=[d for r in planned if (d:=r.get('dialogue'))]
+        if imported != seen_turns:
+            return False,'原稿对白与已确认分镜数量或顺序不一致'
 
     # 去AI味翻译腔与书面套话拦截
     cliche_hits = re.findall(r"(你怎么能如此|我的心好痛|充满了不可思议|眼中闪过一丝|嘴角勾起一抹弧度|三分薄凉|既然你如此无情|休怪我无义)", content)
     if cliche_hits:
         return False, f"剧本门禁未通过：[AI腔台词拦截] 检测到书面套话/翻译腔 {sorted(set(cliche_hits))}！请改为 12 字以内的口语化狠话或潜台词短句。"
         
-    # 检查是否提及体位（吞鲸 v3.0 标准 55 套原生 pose id）
-    KNOWN_IDS = {'fix_attire', 'loosen_tie', 'chin_lift', 'lap_sit', 'titjob', 'cut_insert', 'spatial_shift', 'stand_doggy_wall', 'undress', 'squat_bj', 'clutch_fabric', 'chest_push', 'cunnilingus', 'lip_thumb_wipe', 'tip_lick', 'prop_insert', 'nape_grip', 'breast_rub', 'mirror_ear_whisper', 'stand_face_hug', 'cowgirl', 'prone_bj', 'squirting_climax', 'collapse_sob', 'facesit', 'shoulder_strap_slide', 'facefuck', 'trace_collar', 'floor_missionary', 'deepthroat', 'sixty_nine', 'fingering', 'penis_slap', 'squat_cowgirl', 'doggy', 'blocking_2s', 'stand_bend_doggy', 'tie_pull_seduce', 'reverse_cowgirl', 'srs_female', 'neck_nuzzle_inhale', 'nipple_lick', 'ear_whisper_tease', 'kiss_pin', 'footjob', 'kiss_fondle', 'pov_insert', 'cum_belly', 'side_spoon', 'wall_caging', 'face_insert', 'finger_interlock_pin', 'bedside_stand', 'cum_face', 'srs_male', 'thigh_grind', 'bj', 'cum_butt', 'leg_brush_tease', 'kiss_force', 'solo_masturbate', 'cum_chest', 'creampie', 'turn_evade', 'waist_pull_collision', 'step_back_guard', 'ball_lick', 'cowgirl_upright', 'table_doggy', 'outro_solo', 'lap_sit_back', 'ass_rub', 'missionary_legup', 'env_establish', 'sofa_cunni', 'kiss_her', 'head_thrust', 'carry_insert', 'wrist_pin', 'back_arch_lean', 'present_item', 'grab_lapel', 'side_face', 'missionary', 'anal', 'handjob', 'rub_temple'}
+    # 从唯一数据真源动态加载全部动作/调度 ID，避免矩阵更新后 Gate 2 硬编码列表滞后
+    matrix_path = Path(__file__).resolve().parent.parent / "references" / "tunjing_poses_matrix.json"
+    KNOWN_IDS = set(json.loads(matrix_path.read_text(encoding="utf-8-sig")).keys())
     # 反作弊锁 5：严禁将英文代码箭头 (pose_a -> pose_b) 粗暴塞入 Markdown 标题行充数！
     heading_cheat = re.findall(r'^#{1,4}\s+.*?\([a-z_]+\s*->\s*[a-z_]+.*\)', content, re.MULTILINE)
     if heading_cheat:
@@ -120,8 +151,14 @@ def audit_step_2(project_dir):
 
     # 支持自然中文动作描述或标准 ID 识别（无需为迎合正则污染剧本标题）
     ZH_ACTION_KEYWORDS = re.findall(r'(站立按墙|按墙后入|后入|跪姿口交|口交|深喉|传教士|正面交合|观音坐莲|女上位|骑乘|侧卧|指插|自慰|潮吹|高潮|捏下巴|壁咚|递卡|房卡)', content)
+    from tunjing_solo import PROP_IDS
+    KNOWN_IDS.update(PROP_IDS)
     ids_in_script = set(re.findall(r'\b([a-z][a-z_0-9]{1,24})\b', content)) & KNOWN_IDS
     if len(ids_in_script) + len(set(ZH_ACTION_KEYWORDS)) < 2:
+        # One reviewed action/shot is sufficient evidence in this pipeline.
+        # Don't manufacture a second pose to satisfy the legacy heuristic.
+        if planned:
+            return True, '剧本与已确认的可见镜头一致；单镜无需补动作 PASS'
         return False, "剧本门禁未通过：剧本必须包含至少 2 处明确的阶段性动作/体位推进描述（支持自然中文如“站立按墙/口交/观音坐莲/正面交合”或吞鲸标准 ID）！"
         
     detected_desc = sorted(ids_in_script) if ids_in_script else sorted(set(ZH_ACTION_KEYWORDS))
@@ -130,10 +167,14 @@ def audit_step_2(project_dir):
 def audit_step_3(project_dir):
     """Validate each declared shot using the same duration and dialogue contract as generation."""
     from tunjing_core import dialogue_needed_seconds, STAGING_IDS
-    path = os.path.join(project_dir, "分镜.md")
+    from tunjing_task_source import execution_board_path
+    try:
+        path = execution_board_path(project_dir)
+    except (ValueError, OSError) as exc:
+        return False, f'执行分镜来源无效：{exc}'
     if not os.path.isfile(path):
-        return False, "缺少 '分镜.md'"
-    with open(path, encoding="utf-8") as handle:
+        return False, f"缺少 '{path.name}'"
+    with open(path, encoding="utf-8-sig") as handle:
         content = handle.read()
     marks = list(re.finditer(r"(?im)^[ \t]*(?:#{1,4}[ \t]*)?\[?SHOT[ _-]*\d+[^\r\n]*", content))
     if not marks:
@@ -175,14 +216,21 @@ def audit_step_4(project_dir):
             validate_batch_metadata(batch)
         except ValueError as exc:
             issues.append(str(exc))
+        if not issues and 'pose_input_hashes' in batch:
+            # Gate 1's inventory is necessary, but a different performer's master
+            # in the same slot is not evidence for the file this shot will use.
+            from pathlib import Path
+            assets=(Path(project_dir)/'00_资产').resolve()
+            for name in sorted({f for s in batch['batch_shots'] for f in s['ref_images']}):
+                p=(assets/name).resolve()
+                if not p.is_relative_to(assets): raise ValueError('参考图不在项目资产目录内')
+                validate_asset_image(p)
         for index, shot in enumerate(batch["batch_shots"], 1):
             sid = shot.get("shot_id", shot.get("id", index))
-            errors, _ = lint_tunjing_prompt(shot["prompt"])
+            errors, warnings = lint_task_prompt(shot, batch)
             issues.extend(f"{sid}: {error}" for error in errors)
-            try:
-                resolve_audio_contract(shot, batch)
-            except ValueError as exc:
-                issues.append(f"{sid}: {exc}")
+            for warning in warnings:
+                print(f"[提醒·{sid}] {warning}")
         if issues:
             return False, f"{task_path}: " + " | ".join(issues)
         return True, f"逐镜任务校验 PASS: {task_path}; SHA256={sha}"
@@ -318,10 +366,10 @@ def check_gate(project_dir, target_step=None):
     return False
 
 if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        print("用法: python tunjing_gatekeeper.py <项目目录路径> [可选目标步骤1-5]")
-        sys.exit(1)
-        
+    if len(sys.argv) < 2 or sys.argv[1] in ("-h", "--help"):
+        print("用法: python tunjing_gatekeeper.py <项目目录路径> [可选目标步骤1-6]")
+        sys.exit(0 if len(sys.argv) >= 2 and sys.argv[1] in ("-h", "--help") else 1)
+
     p_dir = sys.argv[1]
     t_step = int(sys.argv[2]) if len(sys.argv) > 2 else None
     

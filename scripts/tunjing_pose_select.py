@@ -36,10 +36,10 @@ POSE_KEYWORD_MAP = {
     "舔蛋": "ball_lick", "舔龟头": "tip_lick", "颜射拍脸": "penis_slap",
     # 前戏系
     "脱衣": "undress", "揉胸": "breast_rub", "舔乳头": "nipple_lick", "舌吻": "kiss_fondle",
-    "接吻": "kiss_pin", "强吻": "kiss_force", "手指": "fingering", "揉阴蒂": "clit_tease",
+    "接吻": "kiss_pin", "强吻": "kiss_force", "揉阴蒂": "clit_tease",
     "自慰": "solo_masturbate", "指交": "fingering",
     # 交合系（女上位）
-    "女上位": "cowgirl", "观音坐莲": "cowgirl", "骑乘": "cowgirl", "倒浇蜡烛": "cowgirl",
+    "女上位": "cowgirl", "骑乘": "cowgirl", "倒浇蜡烛": "cowgirl",
     "反向骑乘": "reverse_cowgirl", "背对他": "reverse_cowgirl", "蹲坐骑乘": "squat_cowgirl",
     "坐怀": "lap_sit", "坐怀背对": "lap_sit_back",
     # 交合系（后入）
@@ -48,7 +48,7 @@ POSE_KEYWORD_MAP = {
     "桌上后入": "table_doggy", "弯腰后入": "stand_bend_doggy", "侧卧后入": "side_spoon",
     # 交合系（传教士/正面）
     "传教士": "missionary", "正面": "missionary", "扛腿": "missionary_legup",
-    "面对面": "stand_face_hug", "抬腿插入": "face_insert", "抱起插入": "carry_insert",
+    "面对面站立拥抱": "stand_face_hug", "抬腿插入": "face_insert", "抱起插入": "carry_insert",
     "床边": "bedside_stand", "侧卧面对面": "side_face", "地板": "floor_missionary",
     "POV": "pov_insert", "第一人称": "pov_insert",
     # 其他交合
@@ -68,7 +68,7 @@ SCENE_POSE_MAP = {
     "床": ["undress", "kiss_fondle", "missionary", "cowgirl", "doggy", "creampie"],
     "沙发": ["undress", "kiss_fondle", "sofa_cunni", "lap_sit", "cowgirl", "cum_face"],
     "桌": ["undress", "kiss_pin", "table_doggy", "missionary", "cum_belly"],
-    "墙": ["undress", "wall_caging", "stand_doggy_wall", "stand_face_hug", "cum_belly"],
+    "墙": ["undress", "wall_caging", "stand_doggy_wall", "cum_belly"],
     "椅": ["undress", "lap_sit", "cowgirl_upright", "creampie"],
     "厨房": ["undress", "kiss_fondle", "stand_bend_doggy", "creampie"],
     "浴室": ["undress", "breast_rub", "stand_doggy_wall", "cum_butt"],
@@ -100,7 +100,37 @@ def select_poses_from_script(script_text, scene_text=""):
     found_source = []
 
     # 1) 剧本明确写了体位词
-    txt = script_text or ""
+    import tunjing_prose as prose
+    visible = []
+    for row in prose.source_rows(script_text or ''):
+        row['turns']=prose.dialogue_on(row['raw'])
+        visible.append(prose.action_body(row)[1])
+    keywords=re.compile('|'.join(map(re.escape,sorted(POSE_KEYWORD_MAP,key=len,reverse=True))))
+    txt = '\n'.join(prose.pose_text(line,keywords) for line in visible)
+    from tunjing_solo import PROP_ACTIONS, PROP_IDS
+    words = {**PROP_ACTIONS, **{pid: pid for pid in PROP_IDS}}
+    pattern = '|'.join(map(re.escape, sorted(words, key=len, reverse=True)))
+    for m in re.finditer(pattern, txt):
+        found.append((m.start(), words[m.group()], m.group()))
+    txt = re.sub(pattern, lambda m: ' ' * len(m.group()), txt)
+    # Resolve this pose family within a single action, never across a transition.
+    def resolve_lap(action):
+        phrase = action.group()
+        explicit = list(re.finditer(r'(?<![a-zA-Z0-9_])(?:lap_sit_back|lap_sit|cowgirl_upright|cowgirl)(?![a-zA-Z0-9_])', phrase))
+        if explicit:
+            for m in explicit:
+                found.append((action.start() + m.start(), m.group(), m.group()))
+        else:
+            seated = re.search(r'(?:男[人方子]?|他)(?:正|已经)?坐', phrase)
+            lap = re.search(r'(?:她|女[人方子]?)[^。；，：]{0,16}?(?:跨坐|坐)(?:在|到|上)?(?:他|男[人方子]?)(?:的)?(?:大腿|腿|膝|怀)[上中里]?', phrase)
+            orientation = re.search(r'背对|背朝|面对面|面对|面朝|朝向', phrase)
+            if not (seated and lap and orientation and seated.start() < lap.start()):
+                return phrase
+            pid = 'lap_sit_back' if orientation.group().startswith('背') else 'lap_sit'
+            found.append((action.start() + lap.start(), pid, lap.group()))
+        return re.sub(r'女上位|背对他|面对面|正面|骑乘', lambda m: ' ' * len(m.group()), phrase)
+
+    txt = re.sub(r'(?:(?!随后|然后|接着|之后|换成|转为)[^。；;！!?？\n])+', resolve_lap, txt)
     for kw, pid in POSE_KEYWORD_MAP.items():
         if kw in txt and pid != "shower":
             # 按关键词在剧本中的位置排序
@@ -120,6 +150,8 @@ def select_poses_from_script(script_text, scene_text=""):
     #    肉戏信号：脱衣/上床/交合/做爱/沦陷/缠绵/亲密/肌肤/呻吟等暗示
     #    纯文戏（只有对峙/谈判/对话）没有肉戏信号时，绝不强行塞肉戏体位。
     SEX_SIGNAL_WORDS = ("脱衣", "上床", "交合", "做爱", "缠绵", "呻吟", "浪叫", "云雨", "翻云覆雨", "肉体", "高潮")
+    if '观音坐莲' in txt:
+        return [], '坐姿承托与朝向待分镜确认'
     has_sex_signal = any(w in txt for w in SEX_SIGNAL_WORDS)
     if not has_sex_signal:
         # 纯文戏：不塞肉戏体位，只保留文戏原语
@@ -149,6 +181,9 @@ def select_poses_with_staging(script_text, scene_text=""):
         "tease": ["env_establish", "blocking_2s"],
     }.get(intent, ["env_establish", "srs_male", "srs_female"])
 
+    from tunjing_solo import PROP_IDS
+    if sex_ids and set(sex_ids) <= PROP_IDS:
+        staging = ["env_establish"]
     full = staging + sex_ids + (["outro_solo"] if sex_ids else [])
     # 去相邻重复
     dedup = []
