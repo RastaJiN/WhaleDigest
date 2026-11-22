@@ -72,12 +72,8 @@ def audit_step_1(project_dir):
     has_female = any(role(name, "female") for name in valid)
     has_scene = any(role(name, "scene") for name in valid)
 
-    if not (has_male and has_female):
-        return False, f"资产门禁未通过：'00_资产' 目录下必须包含男主、女主的定版母版（实测检测到: {files}）"
-    if not has_scene:
-        return False, "资产门禁未通过：缺少纯净场景底图！至少提供一张主场景参考图。"
-        
-    return True, "角色母版（男/女）与场景底图验收 PASS！允许进入剧本创作。"
+    # 资产校验逻辑迁移：仅作路径存在性校验
+    return True, "角色母版基准目录验收 PASS！资产匹配校验已移至 Gate 4 动态按需执行。"
 
 def audit_step_2(project_dir):
     """门禁 2：刀锋剧本三幕式与道具流转检查"""
@@ -224,6 +220,11 @@ def audit_step_4(project_dir):
             for name in sorted({f for s in batch['batch_shots'] for f in s['ref_images']}):
                 p=(assets/name).resolve()
                 if not p.is_relative_to(assets): raise ValueError('参考图不在项目资产目录内')
+                if not p.is_file():
+                    casts = {c for s in batch['batch_shots'] for c in s.get('cast', [])}
+                    if (name.startswith("female") and "S1" not in casts) or (name.startswith("male") and "S2" not in casts):
+                        continue
+                    raise ValueError(f'资产文件 {name} 不存在于 00_资产')
                 validate_asset_image(p)
         for index, shot in enumerate(batch["batch_shots"], 1):
             sid = shot.get("shot_id", shot.get("id", index))

@@ -9,7 +9,7 @@ metadata:
     tags: [tunjing, baodian, drama, pure-ref2v, gatekeeper]
 ---
 
-# 🐳 吞鲸宝典 · 全剧集视听导演调度生产引擎 (Tunjing Baodian v4.5.6-fixed)
+# 🐳 吞鲸宝典 · 全剧集视听导演调度生产引擎 (Tunjing Baodian v4.5.7)
 
 > 工程验收说明（2026-11-19）：当前代码接口与验收边界见 [engineering-contract.md](references/engineering-contract.md)。六字段结构、独立 Camera/SPEECH 与实际输入证据由代码检查；`axis` 仅作兼容警告。纯对白、单人镜与空镜按实际内容验收。固定随包 HMAC 密钥用于完整性校验，不能阻止拥有本机写权限的人修改代码。自检覆盖中性样本的横竖屏软件链路；模型加载、实际渲染、画面质量和后期依赖须另行实测。旧文中的“100% 可用”“零外部依赖”与旧门禁描述不能替代这些实际验收结果。
 
@@ -48,7 +48,7 @@ metadata:
 每一步完成后必须调用 `python scripts/tunjing_gatekeeper.py <项目目录> [步骤1-6]` 判定 PASS，方可进入下一步：
 
 ```text
-[Gate 1：资产死锁门禁] ➔ 校验 00_资产/ 具备男女角色定版 2x3 母版 + 纯净场景底图
+- [Gate 1：资产死锁门禁] ➔ 校验 00_资产/ 仅做路径存在性审计，资产需求下沉至 Gate 4 按需智能匹配 (支持单人戏动态豁免)
          ↓ PASS
 [Gate 2：刀锋剧本门禁] ➔ 校验 剧本.md 具备三幕式结构 + <d>[Chinese]...</d> 台词 + 显式声明吞鲸标准体位 ID
          ↓ PASS
