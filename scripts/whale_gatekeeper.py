@@ -172,7 +172,10 @@ def audit_step_3(project_dir):
         return False, f"缺少 '{path.name}'"
     with open(path, encoding="utf-8-sig") as handle:
         content = handle.read()
-    marks = list(re.finditer(r"(?im)^[ \t]*(?:#{1,4}[ \t]*)?\[?SHOT[ _-]*\d+[^\r\n]*", content))
+    marks = list(re.finditer(
+        r"(?im)^[ \t]*(?:#{1,4}[ \t]*)?\[?(?:SHOT(?:[ _-]+[A-Za-z0-9]+)*[ _-]*\d+|R\d+[ _-]+\d+)[^\r\n]*",
+        content,
+    ))
     if not marks:
         return False, "分镜未检测到逐镜 SHOT 标记"
     for index, mark in enumerate(marks):

@@ -181,8 +181,9 @@ def _lint_single_prompt(text):
             errors.append(f"反物理词错误：检测到 '{phrase}'")
 
     definitions = sections.get("subject_definitions", "")
-    if "<Picture 3>" not in definitions:
-        errors.append("空间锚点错误：subject_definitions 中缺少 <Picture 3> 场景声明")
+    declared_pictures = [int(v) for v in re.findall(r"<Picture\s+(\d+)>", definitions)]
+    if not declared_pictures:
+        errors.append("空间锚点错误：subject_definitions 中至少需要声明一个 <Picture N> 参考图")
     declared_subjects = set(re.findall(r"<Subject\s+(\d+)>", definitions))
     outside_definitions = "\n".join(value for key, value in sections.items() if key != "subject_definitions")
     undeclared = set(re.findall(r"<Subject\s+(\d+)>", outside_definitions)) - declared_subjects

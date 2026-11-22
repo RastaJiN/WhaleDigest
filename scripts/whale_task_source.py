@@ -348,8 +348,8 @@ def validate_batch_metadata(batch):
 
 
 def validate_image_references(refs):
-    if not isinstance(refs, list) or not 3 <= len(refs) <= 9:
-        raise TaskSourceError("ref_images must contain 3 to 9 ordered image filenames")
+    if not isinstance(refs, list) or not 1 <= len(refs) <= 9:
+        raise TaskSourceError("ref_images must contain 1 to 9 ordered image filenames")
     for ref in refs:
         if not isinstance(ref, str) or not ref.strip() or ref != ref.strip() or not ref.isascii():
             raise TaskSourceError("Image filenames must be nonempty, trimmed ASCII strings")

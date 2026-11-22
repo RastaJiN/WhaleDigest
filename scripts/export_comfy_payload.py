@@ -79,11 +79,8 @@ def verify_batch_json(project_dir):
         total_frames += frames
 
         ref_imgs = s.get("ref_images", [])
-        if not isinstance(ref_imgs, list) or not 3 <= len(ref_imgs) <= 9:
-            return False, f"镜头 {i} ref_images 必须为 3 槽 [女, 男, 场] 或 4 槽 [女, 男, 场, 道具]（实测 {len(ref_imgs)} 槽）！"
-        # 校验核心空间锚点：槽位 2（<Picture 3>）必须非空
-        if not ref_imgs[2]:
-            return False, f"镜头 {i} 缺失 <Picture 3> 场景空间锚点！背景底图严禁断开！"
+        if not isinstance(ref_imgs, list) or not 1 <= len(ref_imgs) <= 9:
+            return False, f"镜头 {i} ref_images 必须为 1~9 个有序参考图槽位（实测 {len(ref_imgs)} 槽）！"
         for rname in ref_imgs:
             if not isinstance(rname, str) or not rname.strip():
                 return False, f"镜头 {i} 参考图名必须是非空字符串"

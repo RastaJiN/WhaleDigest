@@ -237,21 +237,15 @@ def build_shot_workflow(base_wf, shot, custom_seed=None, prefix_override=None, a
             or model.get('class_type') != 'MiniMaxH3ReferenceToVideo'
             or ports.get('prompt') != ['263', 0]):
         raise ValueError('H3 正文接线错误：265.prompt 必须读取 Text 节点 263 的输出 0')
-    for slot, node in enumerate(('51', '49', '50')):
+    # 先校模板本身接线完整（含默认前 3 槽节点），再按本镜实际 ref_images 数量（1~9）动态绑定与断开未使用槽位
+    base_slot_nodes = [(0, "51"), (1, "49"), (2, "50")]
+    for slot, node in base_slot_nodes:
         if (wf.get(node, {}).get('class_type') != 'LoadImage' or
                 ports.get(f'ref_images.ref_image_{slot}') != [node, 0]):
             raise ValueError(f'H3 参考图接线错误：Picture {slot + 1} 必须读取节点 {node}')
 
-    if "51" in wf:
-        wf["51"]["inputs"]["image"] = ref_imgs[0]
-    if "49" in wf:
-        wf["49"]["inputs"]["image"] = ref_imgs[1]
-    if "50" in wf:
-        wf["50"]["inputs"]["image"] = ref_imgs[2]
-    # 动态挂载第 4~9 扩展参考图槽位 (<Picture 4>~<Picture 9> -> Nodes 43, 19, 23, 199, 200, 201)
-    # 有道具/扩展图时自动连上 Node 265，无道具镜自动断开 ref_image_3..8（绝不拔掉 Node 50 场景槽顶替！）
     extra_slot_nodes = [(3, "43"), (4, "19"), (5, "23"), (6, "199"), (7, "200"), (8, "201")]
-    for slot_idx, node_id in extra_slot_nodes:
+    for slot_idx, node_id in base_slot_nodes + extra_slot_nodes:
         port_key = f"ref_images.ref_image_{slot_idx}"
         if len(ref_imgs) > slot_idx and ref_imgs[slot_idx]:
             if wf.get(node_id, {}).get("class_type") != "LoadImage":
