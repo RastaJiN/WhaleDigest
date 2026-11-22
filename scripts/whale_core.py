@@ -78,13 +78,103 @@ STACKED_POSES = {
     "cowgirl", "cowgirl_upright", "reverse_cowgirl", "squat_cowgirl",
     "lap_sit", "lap_sit_back", "stand_face_hug", "facesit"
 }
+STANDING_POSES = {
+    "stand_doggy_wall", "stand_bend_doggy", "stand_face_hug",
+    "face_insert", "bedside_stand", "carry_insert", "table_doggy",
+    "squat_bj", "wall_caging", "mirror_ear_whisper", "mirror_whisper",
+}
 REAR_POSES = {
     "doggy", "stand_doggy_wall", "table_doggy", "stand_bend_doggy",
     "side_spoon", "prone_bone", "back_arch_lean"
 }
 SUPINE_POSES = {
-    "missionary", "missionary_legup", "floor_missionary", "face_insert", "side_face"
+    "missionary", "missionary_legup", "floor_missionary", "side_face"
 }
+
+# 全肯定物理站位硬锁（100% 正向描写，供肉戏与关键体位直接读取 framingZh/beatsZh 的核心站位真源，
+# 严禁写否定词根如 no bed / never kneel，符合 H3 CFG=1.0 物理定律）
+STANCE_LOCKS_EN = {
+    "stand_doggy_wall": (
+        "Stance lock: both subjects remain upright on both feet planted firmly on the floor beside the wall; "
+        "she stands leaning forward with both palms braced flat against the vertical wall and hips arched back, "
+        "while he stands directly behind her with his pelvis pressed flush against her buttocks and hip drive "
+        "traveling laterally across the frame."
+    ),
+    "stand_bend_doggy": (
+        "Stance lock: both subjects remain standing on the floor; she stands on tiptoes with torso bent forward "
+        "and hips raised, while he stands upright directly behind her gripping her wrists with his pelvis pressed "
+        "flush against her buttocks."
+    ),
+    "stand_face_hug": (
+        "Stance lock: both subjects stand upright face-to-face on the floor with torsos vertical and hips pressed "
+        "tightly together, his arms wrapped around her waist."
+    ),
+    "face_insert": (
+        "Stance lock: he stands firmly upright on both feet on the floor facing her, lifting one of her thighs "
+        "with one hand while supporting her waist with the other arm, keeping their pelvises pressed flush together."
+    ),
+    "bedside_stand": (
+        "Stance lock: he stands upright on the floor at the edge of the bed while she lies supine along the bed "
+        "edge with her legs resting over his shoulders and hips aligned flush at waist height."
+    ),
+    "carry_insert": (
+        "Stance lock: he stands firmly upright on both feet supporting her lifted body under her buttocks while "
+        "she faces him with her legs wrapped around his waist and arms clasped around his neck."
+    ),
+    "table_doggy": (
+        "Stance lock: she leans her upper torso across the waist-height tabletop with feet planted on the floor, "
+        "while he stands upright behind her gripping her hips with pelvic thrusts traveling laterally across the frame."
+    ),
+    "doggy": (
+        "Stance lock: she braces forward on hands and knees with back arched while he kneels closely behind her "
+        "with pelvis pressed flush against her buttocks and hip drive traveling laterally across the frame."
+    ),
+    "missionary": (
+        "Stance lock: she lies supine on her back with knees drawn open while he kneels between her thighs "
+        "leaning forward above her, keeping face-to-face alignment and continuous pelvic contact."
+    ),
+    "missionary_legup": (
+        "Stance lock: she lies supine on her back with both legs raised onto his shoulders while he kneels "
+        "between her hips leaning forward in continuous face-to-face alignment."
+    ),
+    "cowgirl": (
+        "Stance lock: he lies flat on his back underneath while she straddles his hips face-to-face looking "
+        "directly down at him with her hands braced on his chest."
+    ),
+    "cowgirl_upright": (
+        "Stance lock: he lies flat on his back underneath while she straddles him face-to-face with torso held "
+        "upright and straight, eyes locked downward on him."
+    ),
+    "reverse_cowgirl": (
+        "Stance lock: he sits upright on the bed edge with both feet flat on the floor while she sits on his lap "
+        "facing the same forward direction with her back pressed against his chest and both feet grounded."
+    ),
+    "squat_cowgirl": (
+        "Stance lock: he lies supine underneath while she squats face-to-face over his hips with feet planted on "
+        "the surface and hands braced on his chest."
+    ),
+    "deepthroat": (
+        "Stance lock: her hands brace steadily on his thighs while his arms rest relaxed at his sides, lips "
+        "sealed firmly around the shaft with deep continuous strokes."
+    ),
+    "squat_bj": (
+        "Stance lock: he stands upright with both feet on the floor and arms relaxed at his sides while she "
+        "squats directly in front of him facing his hips."
+    ),
+    "prone_bj": (
+        "Stance lock: he lies supine with legs open and arms resting at his sides while she lies flat belly-down "
+        "between his thighs."
+    ),
+    "facesit": (
+        "Stance lock: he lies supine underneath holding her outer thighs while she kneels straddling above his "
+        "face."
+    ),
+}
+
+
+def stance_lock_for(pose_id):
+    first_p = (pose_id or "").split("->")[0]
+    return STANCE_LOCKS_EN.get(first_p, "")
 ORAL_POSES = {
     "bj", "squat_bj", "prone_bj", "deepthroat", "head_thrust", "facefuck",
     "cunnilingus", "sofa_cunni", "sixty_nine"
@@ -852,7 +942,8 @@ def build_shot_description(shot, index, total_shots, dur, size_desc, cam_desc,
 
     emo_key_body = resolve_emotion_key(emotion, lines, fallback="default")
     emo_cue_extra = ""
-    _supine_ctx = (first_p in SUPINE_POSES) or (bool(nudity) and not is_undress and first_p in ("srs_female", "srs_male", "outro_solo"))
+    # 仅真实仰卧体位走仰卧身体动作表；站立肉戏与单人正反打不再机械套用 "against the support surface"
+    _supine_ctx = first_p in SUPINE_POSES
     _body_tbl = EMOTION_BODY_ACTIONS_SUPINE if _supine_ctx else EMOTION_BODY_ACTIONS
     _face_tbl = EMOTION_MUSCLE_CUES_SUPINE if _supine_ctx else EMOTION_MUSCLE_CUES
     body_action = _body_tbl.get(emo_key_body, _body_tbl["default"])
@@ -879,6 +970,11 @@ def build_shot_description(shot, index, total_shots, dur, size_desc, cam_desc,
             body_text += ' At the end: ' + ending
     if any(k in pid for k in ("kiss", "kiss_fondle", "kiss_pin", "kiss_force", "kiss_her")):
         body_text += " (Anatomical lock: lips gently parted 5 mm with subtle contact and natural lip geometry; his left hand is the single hand in frame)."
+
+    # 站位硬锁注入（将 framingZh/beatsZh 的站立/仰卧/跨坐/纵深横向约束稳定写入英文正向描述）
+    stance_lock = stance_lock_for(first_p)
+    if stance_lock and not is_transition and not shot.get("motion_override") and shot.get("size") not in ("face", "cu"):
+        body_text += " " + stance_lock
 
     if is_penetration and not shot.get("motion_override") and shot.get("size") not in ("face", "cu"):
         body_text += " Sealed pelvic junction: fully seated with the lower abdomen pressed flush against her, the contact line staying continuous and physically cohesive with natural soft-tissue compression and elastic recoil."

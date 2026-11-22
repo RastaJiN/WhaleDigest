@@ -205,10 +205,10 @@ def pick_dict(landscape, landscape_map, portrait_map):
 
 # ── Auto-DP 导演调度与体位拆镜配方（内嵌正反打 srs_male / srs_female 与动态运镜）──────────────────
 POSE_SHOT_PLAN = {
-    # 8 大非肉戏导演调度原语
+    # 8 大非肉戏导演调度原语（单人镜 srs_male 严禁默认配过肩 ots_depth，防无异性参考图裂出同性双人）
     "env_establish":        [("wide", "pull_reveal")],
     "blocking_2s":          [("wide", "arc_subtle"), ("mcu", "push_tension")],
-    "srs_male":             [("cu", "ots_depth")],
+    "srs_male":             [("cu", "push_tension")],
     "srs_female":           [("face", "high_downward")],
     "prop_insert":          [("macro", "push_tension")],
     "cut_insert":           [("macro", "tilt_down_impact")],
@@ -270,23 +270,23 @@ POSE_SHOT_PLAN = {
     "nipple_lick":     [("macro", "push_tension"), ("face", "high_downward")],
     "undress":         [("mcu", "tilt_up_desire"), ("cu", "push_tension")],
 
-    # 主力交合：中近景动态建立 ➔ 腰胯微距 ➔ 正反打表情反应
-    "missionary":      [("mcu", "arc_subtle"), ("hip", "low_hip"), ("face", "high_downward")],
-    "missionary_legup":[("mcu", "push_tension"), ("hip", "low_hip"), ("face", "handheld_breath")],
-    "doggy":           [("mcu", "arc_subtle"), ("hip", "low_hip"), ("cu", "ots_depth")],
-    "table_doggy":     [("mcu", "push_tension"), ("hip", "low_hip"), ("face", "handheld_breath")],
-    "stand_doggy_wall":[("mcu", "ots_depth"), ("hip", "low_hip"), ("face", "handheld_breath")],
-    "stand_bend_doggy":[("mcu", "arc_subtle"), ("hip", "low_hip")],
+    # 主力交合：中近景稳健侧拍/弧移建立 ➔ 腰胯微距 ➔ 双人近景反应（双人交合体位不再默认给 face 以免被槽位隔离暗拆成单人女镜；后入系禁用 ots_depth/static_rear；站立系禁用 wide）
+    "missionary":      [("mcu", "arc_subtle"), ("hip", "low_hip"), ("cu", "high_downward")],
+    "missionary_legup":[("mcu", "push_tension"), ("hip", "low_hip"), ("cu", "handheld_breath")],
+    "doggy":           [("mcu", "static_side"), ("hip", "low_hip"), ("cu", "arc_subtle")],
+    "table_doggy":     [("mcu", "static_side"), ("hip", "low_hip"), ("cu", "handheld_breath")],
+    "stand_doggy_wall":[("mcu", "static_side"), ("hip", "low_hip"), ("cu", "arc_subtle")],
+    "stand_bend_doggy":[("mcu", "static_side"), ("hip", "low_hip")],
     "bedside_stand":   [("mcu", "arc_subtle"), ("hip", "low_hip")],
-    "anal":            [("mcu", "push_tension"), ("hip", "low_hip")],
-    "cowgirl":         [("mcu", "low_upward"), ("hip", "low_hip"), ("face", "push_tension")],
+    "anal":            [("mcu", "static_side"), ("hip", "low_hip")],
+    "cowgirl":         [("mcu", "low_upward"), ("hip", "low_hip"), ("cu", "push_tension")],
     "cowgirl_upright": [("mcu", "tilt_up_desire"), ("cu", "low_upward")],
     "reverse_cowgirl": [("mcu", "arc_subtle"), ("hip", "low_hip")],
     "squat_cowgirl":   [("mcu", "low_upward"), ("hip", "low_hip")],
     "lap_sit_back":    [("mcu", "ots_depth"), ("hip", "low_hip")],
     "stand_face_hug":  [("mcu", "arc_subtle"), ("cu", "handheld_breath")],
-    "carry_insert":    [("wide", "tilt_up_desire"), ("mcu", "handheld_breath")],
-    "face_insert":     [("mcu", "ots_depth"), ("hip", "low_hip")],
+    "carry_insert":    [("mcu", "tilt_up_desire"), ("cu", "handheld_breath")],
+    "face_insert":     [("mcu", "arc_subtle"), ("hip", "low_hip")],
     "side_face":       [("mcu", "high_downward"), ("hip", "low_hip")],
     "pov_insert":      [("mcu", "high_downward"), ("hip", "push_tension")],
 
@@ -591,7 +591,7 @@ def build_scene(chain, total_sec, poses, recipes=None, decisions=None):
                 nxt_en = nxt_p.get("nameEn", nxt_id)
                 from_plan = plan_shot(pid, poses)
                 prev_size = from_plan[-1][0]
-                tr_size = "mcu" if prev_size in ("hip", "macro", "cu", "face") else "wide"
+                tr_size = "mcu"
                 shots.append({
                     "pose": f"{pid}->{nxt_id}",
                     "pose_zh": f"{name}→{nxt}",
@@ -607,7 +607,8 @@ def build_scene(chain, total_sec, poses, recipes=None, decisions=None):
     # Auto-DP 动态运镜与工作景别阶梯（Working Shot Ladder）巡检：
     # 1) 严禁连续两镜同机位同景别，严禁连续两镜 static
     # 2) 极特写(macro)与全景(wide)作为标记镜头，用完一镜后若下一镜仍为同类极端景别，自动弹回工作景别(mcu/cu)
-    dynamic_cycle = ["push_tension", "ots_depth", "tilt_up_desire", "arc_subtle", "handheld_breath", "high_downward", "low_upward"]
+    # 3) 单人镜与后入系轮换池剔除 ots_depth（单人过肩必出同性双人，后入过肩丢失前后贴合）
+    dynamic_cycle = ["push_tension", "arc_subtle", "tilt_up_desire", "handheld_breath", "high_downward", "low_upward"]
     for idx in range(1, len(shots)):
         if shots[idx].get("custom_recipe") or shots[idx].get("action_decision") or shots[idx].get("staging_note"):
             continue

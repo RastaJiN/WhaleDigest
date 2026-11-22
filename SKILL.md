@@ -1,7 +1,7 @@
 ---
 name: tunjing-baodian
 description: "Use when producing or auditing short dramas with WhaleDigest."
-version: 4.5.10
+version: 4.5.11
 author: 吞鲸工作室 (Swallowing Whale Studio)
 license: MIT
 metadata:
@@ -9,7 +9,7 @@ metadata:
     tags: [tunjing, baodian, drama, pure-ref2v, gatekeeper]
 ---
 
-# 🐳 WhaleDigest · 全剧集视听导演调度生产引擎 (WhaleDigest v4.5.10)
+# 🐳 WhaleDigest · 全剧集视听导演调度生产引擎 (WhaleDigest v4.5.11)
 
 > 工程验收说明（2026-11-23）：当前代码接口与验收边界见 [engineering-contract.md](references/engineering-contract.md)。六字段结构、独立 Camera/SPEECH 与实际输入证据由代码检查；`axis` 仅作兼容警告。纯对白、单人镜与空镜按实际内容验收。固定随包 HMAC 密钥用于完整性校验，不能阻止拥有本机写权限的人修改代码。自检覆盖中性样本的横竖屏软件链路；模型加载、实际渲染、画面质量和后期依赖须另行实测。Gate 1 仅作资产基准审计，动态按需校验移至 Gate 4，支持单人戏动态匹配。
 
@@ -37,10 +37,10 @@ metadata:
    - **用户（监制）**：在第 1 步拍板题材方向、选定角色人设、提供或确认定版资产包（角色 2x3 母版与纯净场景底图）；用户不手操 ComfyUI 网页界面、不使用任何需要手动拖拽的“无限画布/Web工作台”，无需分心景别、运镜与工作流连线细节；**关键创作决策（题材、冲突原型、画幅、人选资产）走选择题让监制拍板，但执行细节（拆镜、景别机位、时长）不让监制操心——「方向问监制、执行自动跑」，既不做无人驾驶，也不把执行细节甩给监制二次决策**；
    - **鲸鲸（执行导演）**：资产与剧本方向定版后，**在纯对话模式下后台全包后续全流程**（不等监制提醒即自动配齐正反打 `srs_male`/`srs_female` 按本场机位、站位与注视目标衔接屏幕方向和视线、过肩 `ots_depth`、Auto-DP 先静后动三段式运镜与工作景别阶梯弹跳、13 类家具人体高度物理锚点、特写与微距头部自动瘦身裁剪、24 套文戏对峙与暧昧挑逗肢体动作、12 大黄金反应公式情绪光谱 + 文戏三阶段状态失控谱 `inhibition -> surge -> aftermath`、活人感去AI味台词门禁与 4.1字/秒物理语速预算、后期电话音质 300-3400Hz 带通滤波与内心独白轻混响自动挂载、空间图池单槽轮换与后台全自动批跑）；接手旧项目或初稿剧本时，必须先运行 `python scripts/whale_advisor.py <项目目录>` 主动输出五维度导演诊断与升维建议，严禁照本宣科直接顺着残缺旧剧本往下走；单集总时长（60s~360s 弹性）与文/肉戏出场节奏 100% 服从剧本张力，拒绝“固定 300s / 前200s文+后100s肉”的机械八股。
 4. **状态机锁死与两大反失控铁律**：
-   - **铁律 A（严禁自编野鸡脚本）**：强制使用宝典内置的 `whale_scene.py`、`whale_gatekeeper.py` 与 `whale_runner.py`。**严禁 Agent 在项目目录里临时手写 `make_*.py`、`submit_*.py`、`patch_*.py` 等一次性拼凑脚本绕过宝典真源与门禁！**
-   - **铁律 B（物理点火锁 + 五维签字单呈报，严禁擅自开跑）**：通过 Gate 5 后，系统自动生成《监制五维核对签字单.md》（逐镜列出 `<Picture 1/2/3>` 实名文件、体位 ID、景别运镜、🔥交合微距特写高亮、🗣️台词核对与 16 位 HMAC 完整性令牌）。**鲸鲸必须先向监制呈报该对账单并停机等待；在监制未明确下令“开始渲染”前，严禁调用 ComfyUI 提交任何渲染任务！**
-   - **铁律 C（Git 提交保密，监制硬性要求）**：对吞鲸宝典主仓库（`RastaJiN/tunjing-baodian`，本地 `C:/Users/Rasta/AppData/Local/hermes/skills/tunjing-baodian`）的任何 `git commit`，**commit message 一律只写 `修复少量BUG`，严禁在提交信息里暴露本次更新的具体内容**。
-   - **铁律 D（动态资产契约）**：门禁采用“按需匹配”机制（Lazy Asset Requirement），剧本写谁即验谁，严禁强制凑齐双人母版导致单人戏报错。
+   - **铁律 A（严禁自编野鸡脚本与离线/提交脱节）**：强制使用宝典内置的 `whale_scene.py`、`whale_gatekeeper.py` 与 `whale_runner.py`。**严禁 Agent 在项目目录里临时手写 `make_*.py`、`submit_*.py`、`run_first.py`、`verify_*.py`、`patch_*.py` 等一次性拼凑脚本绕过宝典真源与门禁**——离线自写校验脚本永远不会解锁正式提交入口，反而制造“离线过了但队列不放行”的假修死循环；任何批次都必须通过 `.whale_project.json` 的 `active_batch` 接入原生 `whale_gatekeeper.py` → `whale_runner.py` 链路。
+   - **铁律 B（物理点火锁 + 五维签字单呈报，严禁擅自开跑）**：通过 Gate 5 后，系统自动生成《监制五维核对签字单.md》（逐镜列出 `<Picture 1..N>` 实名文件、体位 ID、景别运镜、🔥交合微距特写高亮、🗣️台词核对与 16 位 HMAC 完整性令牌）。**鲸鲸必须先向监制呈报该对账单并停机等待；在监制未明确下令“开始渲染”前，严禁调用 ComfyUI 提交任何渲染任务！**同时，**“跳过测试/跳过样镜”只跳过样镜环节，绝不跳过参考图（禁把多视图拼版当单图直塞）与提示词（`lint_task_prompt`）门禁**；另一方面，**后期合成项（补画、合成镜头、配乐、发布口径签审）与正式首镜开渲条件解耦**，不得把非首镜阻塞项混进开渲前置条件。
+   - **铁律 C（Git 提交保密，监制硬性要求）**：对吞鲸宝典主仓库（`https://github.com/RastaJiN/WhaleDigest.git`，本地 `C:/Users/Rasta/AppData/Local/hermes/skills/tunjing-baodian`）的任何 `git commit`，**commit message 一律只写 `修复少量BUG`，严禁在提交信息里暴露本次更新的具体内容**；提交前清理 `__pycache__/` 并隔离纯净导出复验（Windows 上用 Python `tarfile.extractall(..., filter="data")` 解包 `git archive` 以保留 UTF-8 中文文件名，避免 `tar.exe` 转义丢档）。
+   - **铁律 D（动态资产与 1–9 槽参考图契约）**：门禁采用“按需匹配”机制（Lazy Asset Requirement），剧本写谁即验谁；单镜支持 **1–9 个有序 `ref_images`**（传统双人镜用 3 槽，正剧单人反打/道具微距/独立角色层合法使用 1–2 槽，`whale_runner.py` 自动从 `Node 265` 断开未使用的 `ref_images.ref_image_1..8` 端口）。严禁强制凑齐双人母版或强求 `<Picture 3>` 导致单人戏误报。
 
 ---
 

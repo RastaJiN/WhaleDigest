@@ -131,6 +131,32 @@ def audit_project(project_dir):
             if ref_imgs[0] != ref_imgs[2] and ref_imgs[1] != ref_imgs[2]:
                 report["violations"].append(f"镜头 {s.get('id')} [单人正反打未隔离异性槽]：正文声明为单人正反打，但 ref_images {ref_imgs[:3]} 同时挂了男女双人母版（未将缺席方替换为场景图）！")
 
+        # 反作弊检查 E：体位 × 景别 × 机位 × 槽位构图一致性（拦截已实片验证的高翻车组合）
+        first_p_chk = (pose or "").split("->")[0]
+        tier_val = s.get("tier", "")
+        cam_val = s.get("camera_motion") or s.get("camera", "")
+        if tier_val in ("B_solo_male", "B_solo_female") and cam_val in ("ots_depth", "ots"):
+            report["violations"].append(
+                f"镜头 {shot_id} [单人镜禁配过肩机位]：tier={tier_val} 已隔离异性参考图，配 {cam_val} 过肩镜头会导致模型拿单人母版裂出同性双人！请改用 static_front/push_tension/high_downward 或切双人镜。"
+            )
+        if first_p_chk in ("stand_doggy_wall", "stand_bend_doggy", "stand_face_hug", "face_insert", "bedside_stand", "carry_insert") and size == "wide":
+            report["violations"].append(
+                f"镜头 {shot_id} [站立系禁配wide全景]：{first_p_chk} 要求站立构图，配 wide 会框入大床/沙发抢占承重面诱发男方跪床！请收窄为 mcu。"
+            )
+        if first_p_chk in ("stand_doggy_wall", "stand_bend_doggy", "doggy", "table_doggy") and cam_val == "static_rear":
+            report["violations"].append(
+                f"镜头 {shot_id} [后入系禁配正后方static_rear]：{first_p_chk} 配 static_rear 易诱发纵深脱节与女主回头看镜头！请改用 static_side（90度侧拍）或 arc_subtle。"
+            )
+        two_body_poses = (
+            "stand_doggy_wall", "stand_bend_doggy", "stand_face_hug", "face_insert", "bedside_stand", "carry_insert",
+            "doggy", "table_doggy", "missionary", "missionary_legup", "cowgirl", "cowgirl_upright",
+            "reverse_cowgirl", "squat_cowgirl", "mirror_ear_whisper", "mirror_whisper", "anal",
+        )
+        if tier_val in ("B_solo_male", "B_solo_female") and first_p_chk in two_body_poses:
+            report["violations"].append(
+                f"镜头 {shot_id} [双人体位误配单人tier]：pose={first_p_chk} 物理上必须双人同框，不能挂在 tier={tier_val} 下！"
+            )
+
         # 结构检查
         sections, section_errors = parse_prompt_sections(prompt)
         if not section_errors:
