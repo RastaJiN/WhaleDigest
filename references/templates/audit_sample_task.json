@@ -1,0 +1,36 @@
+{
+  "batch_shots": [
+    {
+      "id": "shot_1",
+      "shot_id": "shot_01",
+      "prompt": "SPEECH: (S1) <d>[Chinese]你们今晚的房间，801。</d>\nblocking_2s: {env_establish}\n[S1] 面对 [S2] 站立，保持空间张力，不发生肢体接触。",
+      "tier": "staging",
+      "spatial_zone": "hotel_corridor",
+      "cast": ["S1", "S2"],
+      "ref_images": ["scene_hotel_corridor.png", "female_master.png", "male_master.png"],
+      "shot_size": "MCU",
+      "camera_motion": "Two-Shot Spatial Confrontation Blocking",
+      "pose": "blocking_2s",
+      "duration": 8.0,
+      "frames": 192,
+      "blocking_state": {"source_shot": 1, "references": ["scene_hotel_corridor.png", "female_master.png", "male_master.png"], "audio_fx_mode": "normal"},
+      "dialogue": {"actor": "S1", "speaker": "陆骁", "text": "你们今晚的房间，801。"}
+    },
+    {
+      "id": "shot_2",
+      "shot_id": "shot_02",
+      "prompt": "SPEECH: (S1) <d>[Chinese]游戏开始了吗？</d>\nturn_evade: {env_establish}\n[S1] 微微偏头躲避，眼神不与对方接触。",
+      "tier": "staging",
+      "spatial_zone": "hotel_corridor",
+      "cast": ["S1"],
+      "ref_images": ["scene_hotel_corridor.png", "female_master.png"],
+      "shot_size": "MCU",
+      "camera_motion": "SRS Female Reaction",
+      "pose": "turn_evade",
+      "duration": 6.0,
+      "frames": 144,
+      "blocking_state": {"source_shot": 2, "references": ["scene_hotel_corridor.png", "female_master.png"], "audio_fx_mode": "normal"},
+      "dialogue": {"actor": "S1", "speaker": "唐曼", "text": "游戏开始了吗？"}
+    }
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "silent_atmosphere": {
+    "desc": "空镜/环境呼吸感",
+    "templates": [
+      "Cinematic empty shot: {env}, soft focus on light and shadow, wind blowing through curtains, 4s duration, no character visible",
+      "Atmospheric transition: {env}, macro shot of details like water droplets or dust motes in light, tranquil tempo, 3s duration",
+      "Cinematic B-roll: {env}, wide architectural shot showing spatial depth, natural light transition, 5s duration"
+    ]
+  },
+  "transition_flow": {
+    "desc": "转场流动感",
+    "templates": [
+      "Smooth transition: camera pans from {prev_obj} to {next_obj}, focus shift, natural light blur, 2s duration",
+      "Seamless cut: door closing shot, silhouette in light, shift to next interior, soft cross-fade feel, 2s duration"
+    ]
+  }
+}

@@ -204,7 +204,8 @@ def audit_step_3(project_dir):
 
 
 def audit_step_4(project_dir):
-    """Validate the prompts in the exact task selected for rendering."""
+    """门禁 4：纯血Ref2V提示词编译、节拍感知与按需资产核验"""
+    from pathlib import Path
     try:
         task_path, batch, sha = load_task_source(project_dir)
         issues = []
@@ -228,10 +229,23 @@ def audit_step_4(project_dir):
                 validate_asset_image(p)
         for index, shot in enumerate(batch["batch_shots"], 1):
             sid = shot.get("shot_id", shot.get("id", index))
-            errors, warnings = lint_task_prompt(shot, batch)
-            issues.extend(f"{sid}: {error}" for error in errors)
-            for warning in warnings:
-                print(f"[提醒·{sid}] {warning}")
+            # 检查是否为节拍感知模式 (Beat: ...)
+            is_beat = any(k in shot.get("prompt", "") for k in ["[Beat: Silence]", "[Beat: Transition]"])
+        
+            if not is_beat:
+                errors, warnings = lint_task_prompt(shot, batch)
+                # 按需校验资产母版
+                assets = (Path(project_dir)/'00_资产').resolve()
+                cast = shot.get('cast', [])
+                if "S1" in cast and not (assets / "female_master.png").exists():
+                    errors.append("检测到 S1 (女) 但缺少 female_master.png")
+                if "S2" in cast and not (assets / "male_master.png").exists():
+                    errors.append("检测到 S2 (男) 但缺少 male_master.png")
+                issues.extend(f"{sid}: {error}" for error in errors)
+                for warning in warnings:
+                    print(f"[提醒·{sid}] {warning}")
+            else:
+                 print(f"[节拍感知模式·{sid}] 已跳过动作检查")
         if issues:
             return False, f"{task_path}: " + " | ".join(issues)
         return True, f"逐镜任务校验 PASS: {task_path}; SHA256={sha}"
