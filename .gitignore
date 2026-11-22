@@ -1,2 +1,17 @@
 __pycache__/
 *.pyc
+## Runtime project state
+.tunjing_status.json
+.tunjing_axis.json
+## Generated project artifacts
+批量任务.json
+分镜.md
+剧本.md
+视频提示词.md
+监制五维核对签字单.md
+审查/生成前终审报告.md
+## Project assets and render output
+00_资产/
+outputs/
+renders/
+media/

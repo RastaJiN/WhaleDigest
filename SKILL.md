@@ -1,7 +1,7 @@
 ---
-name: tunjing-baodian-h3-ref2va
-description: "Use when producing or auditing short dramas with Tunjing using the isolated H3 Ref2VA assembly profile."
-version: 4.5.5
+name: tunjing-baodian
+description: "Use when producing or auditing short dramas with Tunjing."
+version: 4.5.6
 author: 吞鲸工作室 (Swallowing Whale Studio)
 license: MIT
 metadata:
@@ -9,7 +9,7 @@ metadata:
     tags: [tunjing, baodian, drama, pure-ref2v, gatekeeper]
 ---
 
-# 🐳 吞鲸宝典 · 全剧集视听导演调度生产引擎 (Tunjing Baodian v4.5.5)
+# 🐳 吞鲸宝典 · 全剧集视听导演调度生产引擎 (Tunjing Baodian v4.5.6)
 
 > 工程验收说明（2026-11-19）：当前代码接口与验收边界见 [engineering-contract.md](references/engineering-contract.md)。六字段结构、独立 Camera/SPEECH 与实际输入证据由代码检查；`axis` 仅作兼容警告。纯对白、单人镜与空镜按实际内容验收。固定随包 HMAC 密钥用于完整性校验，不能阻止拥有本机写权限的人修改代码。自检覆盖中性样本的横竖屏软件链路；模型加载、实际渲染、画面质量和后期依赖须另行实测。旧文中的“100% 可用”“零外部依赖”与旧门禁描述不能替代这些实际验收结果。
 
