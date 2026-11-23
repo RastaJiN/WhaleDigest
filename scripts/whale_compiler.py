@@ -117,10 +117,10 @@ def _binding_errors(sections):
         if sid in voices and voices[sid] != vid:
             errors.append(f"声源映射错误：<Subject {sid}> 的声音编号冲突")
         voices[sid] = vid
-    # The local two-actor profile supplies a default when there is no explicit
-    # vocal binding. H3 does not require that the two ID namespaces be equal.
-    for sid in ('1', '2'):
-        if sid in pictures.get(sid, set()):
+    # 只要未显式绑定声源且 <Subject N> 只引用了唯一对应槽位 <Picture N>，默认 S{N} 绑定仅在显式冲突时报错；
+    # 支持任意 1~9 个角色/物体动态排布在任意 <Picture 1..9> 槽位（不再把角色写死在 1/2 号槽！）
+    for sid, pics in pictures.items():
+        if sid in pics and sid in ('1', '2'):
             voices.setdefault(sid, sid)
     outside = '\n'.join(value for name, value in sections.items() if name != 'subject_definitions')
     for sid, vid in _VOICE_PAIR.findall(outside):

@@ -278,7 +278,7 @@ def focal_notes(action, cast) -> list[dict[str, Any]]:
         if '呼吸' in focus: visual += ' as breathing continues'
         if '脱力' in text: visual += ' and the body relaxes against its support'
         return [dict(staging=pose,staging_note=dict(kind='ending_hold',source=action,
-                    visual=visual+'. End on this image.',cam='static_side',size='face' if who else 'mcu'))]
+                    visual=visual+'. End on this image.',cam='pull_reveal',size='face' if who else 'mcu'))]
     if any(_HANDS.search(c) and _CAMERA.search(c) for c in re.split('[。！？；;]',text)):
         linked = re.search(r'指交(?:握|扣|叉|错)|(?:紧扣|交握|交扣|相扣)的手',text)
         visual = ('Their fingers remain interlocked.' if linked else 'Keep the visible hand detail in focus.')
@@ -287,8 +287,8 @@ def focal_notes(action, cast) -> list[dict[str, Any]]:
             visual += ' Her shoulders carry the established body rhythm into the facial close-up.' if re.search('她|女方',text) else ' The established body rhythm remains visible as the framing rises.'
         push=bool(re.search(r'推进|慢推|推向|推近',text))
         return [dict(staging='cut_insert',staging_note=dict(kind='hands',source=action,visual=visual,
-                    to_face=to_face,cam='slow_push' if push else 'static_side',size='cu'))]
+                    to_face=to_face,cam='push_tension' if push else ('tilt_up_desire' if to_face else 'handheld_breath'),size='cu'))]
     if WALL.search(text) and STANDING.search(text):
         return [dict(staging='blocking_2s',staging_note=dict(kind='wall_blocking',source=action,
-                    visual='The performer remains standing beside the wall.',cam='static_side',size='mcu'))]
+                    visual='The performer remains standing beside the wall.',cam='arc_subtle',size='mcu'))]
     return []

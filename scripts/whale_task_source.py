@@ -309,11 +309,23 @@ def require_source_audit(project_dir, status):
 
 
 def validate_batch_metadata(batch):
-    """Validate the same frame, duration and image contract at every gate."""
+    """Validate the same frame, duration, aspect and image contract at every gate."""
     if not isinstance(batch, dict) or not isinstance(batch.get("batch_shots"), list) or not batch["batch_shots"]:
         raise TaskSourceError("A nonempty batch_shots list is required")
     if "fps" in batch and (type(batch["fps"]) not in (int, float) or batch["fps"] != 24):
         raise TaskSourceError("H3 task fps must be 24")
+    # 画幅硬契约：禁止接手旧任务时连画幅都未确认就悄悄按默认 9:16 渲染
+    raw_aspect = batch.get("aspect")
+    valid_aspects = {"9:16", "16:9", "1:1", "9:16 (portrait widescreen)", "16:9 (widescreen)", "1:1 (square)"}
+    if not isinstance(raw_aspect, str) or not raw_aspect.strip():
+        shot_aspects = [s.get("aspect") for s in batch["batch_shots"] if isinstance(s, dict)]
+        if not all(isinstance(a, str) and a.strip().lower() in valid_aspects for a in shot_aspects):
+            raise TaskSourceError(
+                "未明确锁定画幅（aspect 缺失）！必须在批量任务顶层显式声明 aspect（'16:9' / '9:16' / '1:1'），"
+                "严禁未确认画幅直接套用默认竖屏渲染。"
+            )
+    elif raw_aspect.strip().lower() not in valid_aspects:
+        raise TaskSourceError(f"Unsupported batch aspect: {raw_aspect!r}; must be '16:9', '9:16', or '1:1'")
     total = 0
     for index, shot in enumerate(batch["batch_shots"], 1):
         if not isinstance(shot, dict):
@@ -345,6 +357,68 @@ def validate_batch_metadata(batch):
         if type(duration) not in (int, float) or not math.isfinite(duration) or abs(duration - total / 24) > 0.021:
             raise TaskSourceError("Declared total_duration does not match total_frames at 24 fps")
 
+
+
+def resolve_workflow_path(project_dir, explicit_workflow=None):
+    """Resolve the user-specified ComfyUI workflow JSON.
+
+    Priority: explicit --workflow > .whale_project.json['workflow'] > batch['workflow_template']
+    (only if it points to an existing custom file) > None (caller decides fallback or error).
+    Never silently invent a brand-new workflow graph.
+    """
+    if explicit_workflow:
+        p = Path(explicit_workflow).expanduser().resolve()
+        if not p.is_file():
+            raise TaskSourceError(f"指定的 ComfyUI 工作流文件不存在: {p}")
+        return p
+    root = Path(project_dir).expanduser().resolve()
+    manifest = root / MANIFEST_NAME
+    if manifest.is_file():
+        _, cfg = _read_json(manifest)
+        if isinstance(cfg, dict) and cfg.get("workflow"):
+            wf_raw = str(cfg["workflow"]).strip()
+            wf_p = Path(wf_raw)
+            if not wf_p.is_absolute():
+                wf_p = (root / wf_p).resolve()
+            if not wf_p.is_file():
+                raise TaskSourceError(f".whale_project.json 中指定的工作流文件不存在: {wf_p}")
+            return wf_p
+    return None
+
+
+def validate_project_assets(project_dir, batch):
+    """Verify every shot's ref_images physically exist and are decodable inside 00_资产/.
+
+    Prevents gatekeeper from passing phantom placeholder names like female_nude.png / scene_main.png
+    when the actual asset directory holds differently named files or is empty.
+    """
+    assets = (Path(project_dir).resolve() / "00_资产").resolve()
+    if not assets.is_dir():
+        raise TaskSourceError("缺少 '00_资产/' 资产目录，无法验证参考图绑定")
+    referenced = []
+    seen = set()
+    for idx, shot in enumerate(batch.get("batch_shots", []), 1):
+        for name in shot.get("ref_images") or []:
+            if name not in seen:
+                seen.add(name)
+                referenced.append((idx, name))
+    missing = []
+    for idx, name in referenced:
+        p = (assets / name).resolve()
+        try:
+            p.relative_to(assets)
+        except ValueError as exc:
+            raise TaskSourceError(f"镜头 {idx} 参考图 '{name}' 越界，不在 00_资产/ 目录内") from exc
+        if not p.is_file():
+            missing.append(f"镜头{idx}:{name}")
+        else:
+            validate_asset_image(p)
+    if missing:
+        actual_files = sorted(f.name for f in assets.iterdir() if f.is_file())
+        raise TaskSourceError(
+            f"参考图物理缺失（未与 00_资产/ 真实绑定）: {missing[:6]}；"
+            f"当前 00_资产/ 实有文件: {actual_files[:12]}"
+        )
 
 
 def validate_image_references(refs):

@@ -60,6 +60,11 @@ class AdoptedBoardContract(unittest.TestCase):
         self.assertEqual(path.read_text(encoding='utf-8'), text)
 
     def test_gate_and_audit_use_bound_execution_board_not_an_arbitrary_sibling(self):
+        from dryrun_test import png_bytes
+        assets = self.root / '00_资产'
+        assets.mkdir(exist_ok=True)
+        for name in ('female_dressed.png', 'male_dressed.png', 'female_nude.png', 'male_nude.png', 'scene_main.png'):
+            (assets / name).write_bytes(png_bytes())
         text = '## 场次 A\n### SHOT-01\n- 用途：听者反应\n'
         path = self.board(text)
         exe, _ = build(self.root, ['srs_female'], lines='1:S2(VO):等等。')

@@ -31,7 +31,7 @@ non_diegetic_music: N/A'''
 class Ref2VAContract(unittest.TestCase):
     @staticmethod
     def batch(prompt):
-        return {'schema': 'h3-drama-task', 'batch_shots': [{
+        return {'schema': 'h3-drama-task', 'aspect': '16:9', 'batch_shots': [{
             'shot_id': 'shot_01', 'prompt': prompt, 'frames': 90, 'duration': 3.75,
             'ref_images': ['actor_a.png', 'actor_b.png', 'office.png'],
         }]}

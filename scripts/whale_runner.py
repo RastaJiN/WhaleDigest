@@ -24,7 +24,11 @@ import hashlib
 import math
 import urllib.request
 import urllib.error
-from whale_task_source import load_task_source, require_source_audit, source_record, validate_batch_metadata, validate_image_references
+from pathlib import Path
+from whale_task_source import (
+    load_task_source, require_source_audit, source_record, validate_batch_metadata,
+    validate_image_references, resolve_workflow_path, validate_project_assets,
+)
 from whale_media import probe_media
 from whale_audio_contract import resolve_audio_contract, validate_workflow_audio
 from whale_compiler import lint_task_prompt
@@ -218,6 +222,91 @@ def sync_assets_to_comfy(project_dir, comfy_input_dir):
     return copied
 
 
+def _inspect_h3_workflow(wf):
+    """Discover H3 Ref2VA nodes dynamically by class_type and wiring so user-supplied workflows
+    with arbitrary node IDs are patched in-place without inventing a new workflow."""
+    h3_id = next((nid for nid, n in wf.items() if isinstance(n, dict) and n.get("class_type") == "MiniMaxH3ReferenceToVideo"), None)
+    if not h3_id:
+        raise ValueError("H3 工作流缺少 MiniMaxH3ReferenceToVideo 节点，拒绝私自新建工作流")
+    ports = wf[h3_id].get("inputs", {})
+
+    # 1. Text / prompt node (must be connected via link [node_id, 0], never stale literal)
+    prompt_link = ports.get("prompt")
+    if not (isinstance(prompt_link, list) and len(prompt_link) == 2 and prompt_link[1] == 0):
+        raise ValueError(f"H3 正文接线错误：{h3_id}.prompt 必须连接到有效的 Text 节点输出 0（实测: {prompt_link!r}）")
+    text_id = str(prompt_link[0])
+    text_node = wf.get(text_id, {})
+    text_inputs = text_node.get("inputs", {}) if isinstance(text_node, dict) else {}
+    text_key = "text" if "text" in text_inputs else ("value" if "value" in text_inputs else None)
+    if text_node.get("class_type") not in ("Text", "PrimitiveString", "PrimitiveStringMultiline", "String") or not text_key:
+        raise ValueError(f"H3 正文接线错误：节点 {text_id} 不是有效的文本输入节点")
+
+    # 2. LoadImage slots: preserve existing ref_images.ref_image_0..8 wiring first;
+    #    for legacy built-in template keep canonical order (51,49,50,43,19,23,199,200,201)
+    #    and for arbitrary user workflows auto-collect all LoadImage nodes in deterministic order.
+    slot_nodes = {}
+    for slot_idx in range(9):
+        link = ports.get(f"ref_images.ref_image_{slot_idx}")
+        if isinstance(link, list) and len(link) == 2 and link[1] == 0:
+            nid = str(link[0])
+            if wf.get(nid, {}).get("class_type") == "LoadImage":
+                slot_nodes[slot_idx] = nid
+            else:
+                raise ValueError(f"H3 参考图接线错误：ref_image_{slot_idx} 连接了非 LoadImage 节点 {nid}")
+
+    # Built-in template strict guard: if using built-in node 265 with standard nodes 51/49/50,
+    # ensure Picture 1/2/3 weren't accidentally swapped (keeps Ref2VAContract invariant).
+    if h3_id == "265" and {"51", "49", "50"}.issubset(wf.keys()):
+        for slot_idx, expected_nid in enumerate(("51", "49", "50")):
+            if slot_idx in slot_nodes and slot_nodes[slot_idx] != expected_nid:
+                raise ValueError(f"H3 参考图接线错误：Picture {slot_idx + 1} 必须读取节点 {expected_nid}")
+
+    # Fill unassigned slot indices (up to 9) from remaining unused LoadImage nodes in the user's workflow
+    used_nids = set(slot_nodes.values())
+    canonical_extras = [n for n in ("51", "49", "50", "43", "19", "23", "199", "200", "201")
+                        if n in wf and wf[n].get("class_type") == "LoadImage" and n not in used_nids]
+    other_loaders = sorted(
+        (nid for nid, n in wf.items()
+         if isinstance(n, dict) and n.get("class_type") == "LoadImage"
+         and nid not in used_nids and nid not in canonical_extras),
+        key=lambda x: (int(x) if x.isdigit() else 999999, x),
+    )
+    pool = canonical_extras + other_loaders
+    for slot_idx in range(9):
+        if slot_idx not in slot_nodes and pool:
+            slot_nodes[slot_idx] = pool.pop(0)
+
+    # 3. Auxiliary nodes by class_type (never assume hardcoded IDs for user workflows)
+    res_id = next((nid for nid, n in wf.items() if isinstance(n, dict) and n.get("class_type") == "ResolutionSelector"), None)
+    sampler_id = next((nid for nid, n in wf.items() if isinstance(n, dict) and "seed" in (n.get("inputs") or {})
+                       and any(k in str(n.get("class_type", "")) for k in ("Sampler", "SelfLift"))), None)
+    save_id = next((nid for nid, n in wf.items() if isinstance(n, dict)
+                    and "filename_prefix" in (n.get("inputs") or {})
+                    and any(k in str(n.get("class_type", "")) for k in ("VideoCombine", "SaveVideo"))), None)
+    mystic_lora_ids = [
+        nid for nid, n in wf.items()
+        if isinstance(n, dict) and "LoraLoader" in str(n.get("class_type", ""))
+        and "mystic" in str((n.get("inputs") or {}).get("lora_name", "")).lower()
+    ]
+    # Duration PrimitiveFloat linked into length/math expression (if present)
+    dur_id = "259" if wf.get("259", {}).get("class_type") == "PrimitiveFloat" else next(
+        (nid for nid, n in wf.items() if isinstance(n, dict) and n.get("class_type") == "PrimitiveFloat"
+         and "value" in (n.get("inputs") or {})), None
+    )
+
+    return {
+        "h3_id": h3_id,
+        "text_id": text_id,
+        "text_key": text_key,
+        "slot_nodes": slot_nodes,
+        "res_id": res_id,
+        "sampler_id": sampler_id,
+        "save_id": save_id,
+        "mystic_lora_ids": mystic_lora_ids,
+        "dur_id": dur_id,
+    }
+
+
 def build_shot_workflow(base_wf, shot, custom_seed=None, prefix_override=None, aspect=None, batch=None):
     import copy
     errors, _ = lint_task_prompt(shot, batch)
@@ -228,37 +317,27 @@ def build_shot_workflow(base_wf, shot, custom_seed=None, prefix_override=None, a
     wf = copy.deepcopy(base_wf)
     validate_image_references(shot.get("ref_images"))
     ref_imgs = list(shot["ref_images"])
-    # This engine ships one fixed Ref2VA graph. Never validate shot['prompt'] but
-    # leave the model reading a stale literal/another Text node from the template.
-    text_node = wf.get('263', {})
-    model = wf.get('265', {})
-    ports = model.get('inputs', {})
-    if (text_node.get('class_type') != 'Text' or 'text' not in text_node.get('inputs', {})
-            or model.get('class_type') != 'MiniMaxH3ReferenceToVideo'
-            or ports.get('prompt') != ['263', 0]):
-        raise ValueError('H3 正文接线错误：265.prompt 必须读取 Text 节点 263 的输出 0')
-    # 先校模板本身接线完整（含默认前 3 槽节点），再按本镜实际 ref_images 数量（1~9）动态绑定与断开未使用槽位
-    base_slot_nodes = [(0, "51"), (1, "49"), (2, "50")]
-    for slot, node in base_slot_nodes:
-        if (wf.get(node, {}).get('class_type') != 'LoadImage' or
-                ports.get(f'ref_images.ref_image_{slot}') != [node, 0]):
-            raise ValueError(f'H3 参考图接线错误：Picture {slot + 1} 必须读取节点 {node}')
 
-    extra_slot_nodes = [(3, "43"), (4, "19"), (5, "23"), (6, "199"), (7, "200"), (8, "201")]
-    for slot_idx, node_id in base_slot_nodes + extra_slot_nodes:
+    meta = _inspect_h3_workflow(wf)
+    h3_id = meta["h3_id"]
+    slot_nodes = meta["slot_nodes"]
+
+    # 按本镜实际 ref_images（1~9 张）动态开关槽位，绝不强求固定 3 槽，也绝不把角色写死在某槽位
+    for slot_idx in range(9):
         port_key = f"ref_images.ref_image_{slot_idx}"
-        if len(ref_imgs) > slot_idx and ref_imgs[slot_idx]:
-            if wf.get(node_id, {}).get("class_type") != "LoadImage":
-                raise ValueError(f"Missing extra LoadImage node {node_id}")
-            if node_id in wf:
-                wf[node_id]["inputs"]["image"] = ref_imgs[slot_idx]
-            if "265" in wf:
-                wf["265"]["inputs"][port_key] = [node_id, 0]
-        elif "265" in wf and port_key in wf["265"]["inputs"]:
-            del wf["265"]["inputs"][port_key]
+        if slot_idx < len(ref_imgs) and ref_imgs[slot_idx]:
+            node_id = slot_nodes.get(slot_idx)
+            if not node_id or wf.get(node_id, {}).get("class_type") != "LoadImage":
+                raise ValueError(
+                    f"工作流缺少第 {slot_idx + 1} 路 LoadImage 节点（本镜需要 {len(ref_imgs)} 张参考图，工作流仅提供 {len(slot_nodes)} 路）"
+                )
+            wf[node_id]["inputs"]["image"] = ref_imgs[slot_idx]
+            wf[h3_id]["inputs"][port_key] = [node_id, 0]
+        elif port_key in wf[h3_id]["inputs"]:
+            del wf[h3_id]["inputs"][port_key]
 
-    if "400" in wf:
-        # 严格按镜头显式值控制 MysticXXX 成人 LoRA；未显式声明时仅对真实肉戏体位默认 0.45，纯正剧/动画/未标体位一律强制 0.0 防污染
+    # MysticXXX 成人 LoRA 控制：原地修改用户工作流里所有 mystic LoRA 节点；非肉戏默认归零 0.0
+    if meta["mystic_lora_ids"]:
         from whale_core import STAGING_IDS
         pose_head = str(shot.get("pose") or "").split("->")[0]
         if "lora_mystic_strength" in shot and shot["lora_mystic_strength"] is not None:
@@ -267,36 +346,35 @@ def build_shot_workflow(base_wf, shot, custom_seed=None, prefix_override=None, a
             mystic_w = 0.45
         else:
             mystic_w = 0.0
-        wf["400"]["inputs"]["lora_name"] = shot.get("lora_mystic_name", "MysticXXX_MMH3-V5-ref2va.safetensors")
-        wf["400"]["inputs"]["strength_model"] = mystic_w
+        for lid in meta["mystic_lora_ids"]:
+            if shot.get("lora_mystic_name"):
+                wf[lid]["inputs"]["lora_name"] = shot["lora_mystic_name"]
+            wf[lid]["inputs"]["strength_model"] = mystic_w
 
-    if "397" in wf and custom_seed is not None:
-        wf["397"]["inputs"]["seed"] = int(custom_seed)
+    if meta["sampler_id"] and custom_seed is not None:
+        wf[meta["sampler_id"]]["inputs"]["seed"] = int(custom_seed)
 
-    # 画幅（横屏/竖屏）：优先级 shot.aspect > 批次 aspect > 工作流现值。
-    # 宝典母版工作流默认 9:16，横屏项目若不带画幅会被静默出成竖屏。
+    # 画幅（横屏/竖屏）：优先级 shot.aspect > 批次 aspect；不再静默回退 9:16
     resolved_aspect = resolve_aspect(shot.get("aspect")) or resolve_aspect(aspect)
-    if "252" in wf:
+    if meta["res_id"]:
         if resolved_aspect:
-            wf["252"]["inputs"]["aspect_ratio"] = resolved_aspect
+            wf[meta["res_id"]]["inputs"]["aspect_ratio"] = resolved_aspect
         if shot.get("megapixels"):
-            wf["252"]["inputs"]["megapixels"] = float(shot["megapixels"])
-        print(f"[画幅] {shot.get('shot_id')} -> {wf['252']['inputs']['aspect_ratio']} "
-              f"@ {wf['252']['inputs'].get('megapixels')}MP")
+            wf[meta["res_id"]]["inputs"]["megapixels"] = float(shot["megapixels"])
+        print(f"[画幅] {shot.get('shot_id')} -> {wf[meta['res_id']]['inputs'].get('aspect_ratio')} "
+              f"@ {wf[meta['res_id']]['inputs'].get('megapixels')}MP")
 
-    if "259" in wf:
-        wf["259"]["inputs"]["value"] = float(shot.get("duration", 5.0))
-    if "263" in wf:
-        wf["263"]["inputs"]["text"] = shot.get("prompt", "")
-    if "265" in wf:
-        wf["265"]["inputs"]["ref_image_size"] = "match"
-        if "frames" in shot:
-            wf["265"]["inputs"]["length"] = shot["frames"]
-    if "364" in wf:
+    if meta["dur_id"] and "duration" in shot:
+        wf[meta["dur_id"]]["inputs"]["value"] = float(shot["duration"])
+    wf[meta["text_id"]]["inputs"][meta["text_key"]] = shot.get("prompt", "")
+    wf[h3_id]["inputs"]["ref_image_size"] = "match"
+    if "frames" in shot:
+        wf[h3_id]["inputs"]["length"] = shot["frames"]
+    if meta["save_id"]:
         num_m = re.search(r"(\d+)", str(shot.get("shot_id") or shot.get("id") or "1"))
         s_num = int(num_m.group(1)) if num_m else 1
         default_pfx = shot.get("filename_prefix") or f"EP001_SHOT_{s_num:03d}"
-        wf["364"]["inputs"]["filename_prefix"] = prefix_override or default_pfx
+        wf[meta["save_id"]]["inputs"]["filename_prefix"] = prefix_override or default_pfx
 
     return wf
 
@@ -345,6 +423,7 @@ def main():
     ap.add_argument("--candidates", type=int, default=1, help="每个重摇镜头生成的候选版本数（默认1，可设2~3挑片）")
     ap.add_argument("--render-timeout", type=float, default=3600, help="每个渲染任务最长等待秒数")
     ap.add_argument("--force", action="store_true", help="忽略断点续跑缓存，强制重跑全部目标镜头")
+    ap.add_argument("--workflow", default=None, help="指定 ComfyUI API 工作流 JSON 路径（原地回填，严禁私建新工作流；也可在 .whale_project.json 的 workflow 字段声明）")
     ap.add_argument("--confirm-token", default="", help="审阅后使用当前状态对应的 16 位完整性令牌（未提供严禁连接 ComfyUI 渲染！）")
     args = ap.parse_args()
     if not math.isfinite(args.render_timeout) or args.render_timeout <= 0:
@@ -358,8 +437,10 @@ def main():
         if initial_source["task_path"] != str(bj_path) or initial_source["task_sha256"] != task_sha:
             raise ValueError("任务在读取期间发生变化，请重新核验")
         validate_batch_metadata(batch)
+        validate_project_assets(args.project_dir, batch)
         for shot in batch["batch_shots"]:
             resolve_audio_contract(shot, batch)
+        wf_path = resolve_workflow_path(args.project_dir, args.workflow) or Path(DEFAULT_WF)
         if not args.dry_build:
             with open(os.path.join(args.project_dir, ".whale_status.json"), encoding="utf-8") as fh:
                 require_source_audit(args.project_dir, json.load(fh))
@@ -368,7 +449,8 @@ def main():
         sys.exit(1)
     bible, bible_path = load_or_init_series_bible(args.project_dir)
     print(f"任务源: {bj_path}; SHA256={task_sha}")
-    with open(DEFAULT_WF, "r", encoding="utf-8") as f:
+    print(f"工作流模板: {wf_path}")
+    with open(wf_path, "r", encoding="utf-8-sig") as f:
         base_wf = json.load(f)
 
     all_shots = batch.get("batch_shots", [])

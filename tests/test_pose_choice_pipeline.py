@@ -10,7 +10,7 @@ class ChoiceTest(unittest.TestCase):
             source = p/'剧本.md'
             source.write_text('镜1：女上坐姿。\n镜2：亲密站姿。', encoding='utf8')
             def run():
-                return subprocess.run([sys.executable,str(PIPE),str(source),'--dry','--total','60'], capture_output=True,encoding='utf8',env={**os.environ,'PYTHONUTF8':'1'})
+                return subprocess.run([sys.executable,str(PIPE),str(source),'--dry','--aspect','9:16','--total','60'], capture_output=True,encoding='utf8',env={**os.environ,'PYTHONUTF8':'1'})
             state = p/'分镜体位选择.json'
             prompt = p/'视频提示词.md'
             first = run(); self.assertEqual(first.returncode, 3, first.stdout+first.stderr)

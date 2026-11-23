@@ -85,8 +85,13 @@ class ProductionV4510Test(unittest.TestCase):
             self.assertEqual([], errs, f"{s['shot_id']} lint failed: {errs}")
         task_source.validate_batch_metadata(batch)
 
-        # 2) Gate 4 & export_comfy_payload verify cleanly
+        # 2) Gate 4 & export_comfy_payload verify cleanly (with real assets in 00_资产/)
+        from dryrun_test import png_bytes
         with tempfile.TemporaryDirectory() as folder:
+            assets = Path(folder) / "00_资产"
+            assets.mkdir()
+            for fn in ("ranger_v1.png", "corner_v1.png", "mascot_v1.png"):
+                (assets / fn).write_bytes(png_bytes())
             (Path(folder) / "批量任务.json").write_text(
                 json.dumps(batch, ensure_ascii=False, indent=2), encoding="utf-8"
             )

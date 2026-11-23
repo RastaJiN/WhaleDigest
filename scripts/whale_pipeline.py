@@ -68,13 +68,14 @@ def entry_selfcheck():
 def main():
     ap = argparse.ArgumentParser(description="吞鲸宝典端到端自动流水线（One-Shot Auto-Pipeline）")
     ap.add_argument("script", nargs="?", default="", help="剧本.md 文件路径（或项目目录）；不填则自检入口并提示")
-    ap.add_argument("--aspect", default="9:16", help="画幅 9:16/16:9/1:1，默认竖屏")
+    ap.add_argument("--aspect", default="", help="画幅 9:16/16:9/1:1（必须明确确认！若未传且项目未声明 aspect 则直接拦截，严禁静默套用 9:16）")
     ap.add_argument("--total", type=float, default=240.0, help="全集目标时长秒")
     ap.add_argument("--scene-id", help="采用剧本中的当前场次 ID")
     ap.add_argument("--scene", default="酒店客房", help="主场景名")
     ap.add_argument("--lines", default="", help="台词（可选，格式 '镜号:女子A:台词' 竖线分隔）")
     ap.add_argument("--idea", default="", help="剧情核心张力描述")
     ap.add_argument("--wardrobe-mode", default="", choices=["", "nude_all", "dressed_all"], help="可选服装状态显式覆盖：nude_all / dressed_all")
+    ap.add_argument("--workflow", default="", help="指定 ComfyUI 工作流 JSON 路径（可选，写入 .whale_project.json 供渲染器原地回填）")
     ap.add_argument("--dry", action="store_true", help="只跑到分镜+提示词落地，不渲染")
     args = ap.parse_args()
 
@@ -117,6 +118,25 @@ def main():
     if not os.path.exists(script_file):
         print(f"[X] 找不到剧本.md: {script_file}")
         sys.exit(1)
+
+    # ── 画幅显式确认：接手项目时优先读取已有 .whale_project.json / 批量任务.json 的 aspect；仍未指定则直接停止要求确认 ──
+    resolved_aspect = (args.aspect or "").strip()
+    if not resolved_aspect:
+        import json as _json
+        for cfg_name in (".whale_project.json", "批量任务.json"):
+            cfg_p = os.path.join(project_dir, cfg_name)
+            if os.path.isfile(cfg_p):
+                try:
+                    cfg_d = _json.loads(open(cfg_p, encoding="utf-8-sig").read())
+                    if isinstance(cfg_d, dict) and str(cfg_d.get("aspect") or "").strip():
+                        resolved_aspect = str(cfg_d["aspect"]).strip()
+                        break
+                except Exception:
+                    pass
+    if not resolved_aspect:
+        print("[X] 未确定画幅（aspect）！请先向监制确认横屏(16:9) / 竖屏(9:16) / 方屏(1:1)，并通过 --aspect 明确传入，严禁静默套用默认竖屏。")
+        sys.exit(1)
+    args.aspect = resolved_aspect
 
     print("🐳 吞鲸宝典端到端自动流水线启动")
     print(f"   剧本: {script_file}")

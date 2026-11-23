@@ -24,7 +24,10 @@ import re
 import argparse
 import hashlib
 
-from whale_task_source import load_task_source, source_record, validate_batch_metadata, execution_board_path
+from whale_task_source import (
+    load_task_source, source_record, validate_batch_metadata, execution_board_path,
+    validate_project_assets, TaskSourceError,
+)
 from whale_compiler import lint_task_prompt, parse_prompt_sections, strip_dialogue
 from whale_audio_contract import resolve_audio_contract
 
@@ -66,6 +69,10 @@ def audit_project(project_dir):
         validate_batch_metadata(batch_data)
     except ValueError as exc:
         report["violations"].append(f"任务元数据错误: {exc}")
+    try:
+        validate_project_assets(project_dir, batch_data)
+    except TaskSourceError as exc:
+        report["violations"].append(f"[资产未绑定/物理缺失] {exc}")
     report["files_checked"][batch_file.name] = True
 
     shots = batch_data["batch_shots"]
@@ -281,6 +288,18 @@ def audit_project(project_dir):
     report["metrics"]["project_mode"] = "intimate_drama" if is_intimate_project else "standard_drama"
     report["metrics"]["unique_cameras"] = len(unique_cams)
     report["metrics"]["unique_shot_sizes"] = len(unique_sizes)
+
+    # 视听多样性硬闸：>=5 镜的长批次禁止全片单一机位或单一景别（杜绝一机位僵死过审）
+    if len(shots) >= 5:
+        if unique_cams and len(unique_cams) <= 1:
+            report["violations"].append(
+                f"[运镜僵化拦截] 共 {len(shots)} 镜却全为单一机位 {sorted(unique_cams)}，缺乏运镜与呼吸感！"
+            )
+        if unique_sizes and len(unique_sizes) <= 1:
+            report["violations"].append(
+                f"[景别单一拦截] 共 {len(shots)} 镜全为单一景别 {sorted(unique_sizes)}，缺乏景别阶梯节奏！"
+            )
+
     if is_intimate_project:
         effective_switches = max(pose_switches, max(0, len(distinct_main_intimate) - 1))
         report["metrics"]["intimate_coverage"] = {

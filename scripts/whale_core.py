@@ -564,6 +564,84 @@ NUDITY_LOCK_SOLO_M = "Nudity continuity: <Subject 2> remains completely unclothe
 NUDITY_LOCK_BOTH = "Nudity continuity: both <Subject 1> and <Subject 2> remain completely unclothed from first frame to last with continuous bare skin across every visible body area."
 
 
+def build_dynamic_slots_header(slots, dur, aspect="16:9", scene_en="established scene",
+                               has_audio_refs=False, summary_text=""):
+    """通用动态多槽位头部装配（1~9 槽任意排布，绝不写死 1=女 / 2=男 / 3=场景）。
+
+    slots: list[dict]，每项可声明：
+      - picture: int (1..9，对应 ref_images 的 1-based 槽位)
+      - subject: int (可选，默认同 picture)
+      - desc / role: str (角色、场景或道具的英文锚定描述)
+      - kind: "character" | "scene" | "prop" (默认 "character")
+      - voice: int | None (可选，例如 1/2/3 -> S1/S2/S3)
+      - nudity: bool (可选，仅该角色裸体时追加全肯定裸肌描写)
+    """
+    if not slots or not 1 <= len(slots) <= 9:
+        raise ValueError("slots must contain 1 to 9 ordered reference bindings")
+    parts = [
+        f"Goal & Audio Contract: Generate a {dur:.2f}-second {aspect} live-action cinema video "
+        "with readable physical biomechanics, locked identity consistency, and synchronized native audio.",
+        "Audio rule: characters vocalize exclusively the exact words enclosed inside <d>...</d> tags; "
+        "all other moments contain pure physical foley and natural breathing. "
+        "Never speak stage directions, pose names, camera moves, or any instruction aloud; "
+        "only the dialogue inside <d> tags is spoken, everything else stays as unvoiced visual action.",
+        "Voice discipline: <d> content is the sole spoken text; "
+        "pose labels, intensity tags, and framing terms are never narrated, only enacted silently on screen.",
+        "",
+        "Anchoring & Consistency:",
+        "subject_definitions:",
+    ]
+    char_subjects = []
+    scene_subjects = []
+    for idx, sl in enumerate(slots, 1):
+        pic = int(sl.get("picture", idx))
+        sub = int(sl.get("subject", pic))
+        kind = str(sl.get("kind") or "character").lower()
+        desc = str(sl.get("desc") or sl.get("role") or "").strip()
+        voice = sl.get("voice")
+        voice_tag = f" (S{int(voice)})" if voice else ""
+        if kind == "scene":
+            scene_subjects.append((sub, pic))
+            desc_text = desc or f"the {scene_en} environment"
+            parts.append(f"<Subject {sub}> is {desc_text} anchored in <Picture {pic}>.")
+        elif kind == "prop":
+            desc_text = desc or "key physical item"
+            parts.append(f"<Subject {sub}> is {desc_text} anchored in <Picture {pic}>.")
+        else:
+            char_subjects.append((sub, pic, bool(sl.get("nudity"))))
+            desc_text = desc or f"character {sub}"
+            nude_tail = (
+                " Completely unclothed with continuous bare natural skin from shoulders to waist and limbs."
+                if sl.get("nudity") else ""
+            )
+            parts.append(f"<Subject {sub}>{voice_tag} is {desc_text} anchored in <Picture {pic}>.{nude_tail}")
+
+    reference_mode = "reference generation + audio reference" if has_audio_refs else "reference generation"
+    parts.append("")
+    parts.append("summary:")
+    if summary_text:
+        parts.append(f"[{reference_mode}] {summary_text.strip()}")
+    else:
+        sub_list = ", ".join(f"<Subject {s}>" for s, _, _ in char_subjects) or "the scene"
+        sc_clause = f" within <Subject {scene_subjects[0][0]}>" if scene_subjects else ""
+        parts.append(f"[{reference_mode}] Cinematic interaction featuring {sub_list}{sc_clause}.")
+    parts.append("")
+    parts.append("retention_analysis:")
+    for idx, sl in enumerate(slots, 1):
+        pic = int(sl.get("picture", idx))
+        sub = int(sl.get("subject", pic))
+        kind = str(sl.get("kind") or "character").lower()
+        if kind == "scene":
+            parts.append(f"<Subject {sub}>: fully_preserved for surface texture and lighting direction from <Picture {pic}>; weak_reference for exact camera framing.")
+        elif kind == "prop":
+            parts.append(f"<Subject {sub}>: fully_preserved - exact object geometry, surface markings, and material texture are strictly locked to <Picture {pic}>.")
+        else:
+            nude_ret = " Full bare skin continuity maintained across every frame." if sl.get("nudity") else ""
+            parts.append(f"<Subject {sub}>: fully_preserved - facial identity, hairstyle, physique, and skin tone are strictly locked to <Picture {pic}>.{nude_ret}")
+    parts.append("")
+    return parts
+
+
 def build_fullref_header(
     dur,
     aspect,
@@ -1031,15 +1109,23 @@ def single_shot_prompt(shot, index, total_shots, dur, size_desc, cam_desc,
         scene = 'wall'  # Do not give the wall shot a conflicting mattress anchor or soundscape.
 
     eff_prop = prop_ref or shot.get("prop_ref", "")
-    header = build_fullref_header(
-        dur, aspect, scene=scene, idea=idea, is_undress=is_undress,
-        is_staging=is_staging, is_stacked=is_stacked, is_rear=is_rear,
-        is_supine=is_supine, is_oral=is_oral, female_screen_side=female_screen_side,
-        tier=tier, shot_size=shot_size,
-        female_desc=female_desc, male_desc=male_desc, scene_props=scene_props,
-        prop_ref=eff_prop, prop_desc=prop_desc,
-        has_audio_refs=has_audio_refs, nudity=nudity
-    )
+    custom_slots = shot.get("slots")
+    if isinstance(custom_slots, list) and custom_slots:
+        scene_en_s = scene if not re.search(r"[\u4e00-\u9fff]", str(scene)) else "established scene"
+        header = build_dynamic_slots_header(
+            custom_slots, dur, aspect=aspect, scene_en=scene_en_s,
+            has_audio_refs=has_audio_refs, summary_text=shot.get("summary_en", ""),
+        )
+    else:
+        header = build_fullref_header(
+            dur, aspect, scene=scene, idea=idea, is_undress=is_undress,
+            is_staging=is_staging, is_stacked=is_stacked, is_rear=is_rear,
+            is_supine=is_supine, is_oral=is_oral, female_screen_side=female_screen_side,
+            tier=tier, shot_size=shot_size,
+            female_desc=female_desc, male_desc=male_desc, scene_props=scene_props,
+            prop_ref=eff_prop, prop_desc=prop_desc,
+            has_audio_refs=has_audio_refs, nudity=nudity
+        )
 
     shot_body = build_shot_description(
         shot, index, total_shots, dur, size_desc, cam_desc,
@@ -1050,7 +1136,7 @@ def single_shot_prompt(shot, index, total_shots, dur, size_desc, cam_desc,
 
     parts = _official_ref2va_header(header)
     parts.append("detailed_description:")
-    if nudity and not is_undress and tier != "C_empty_cut":
+    if nudity and not is_undress and tier != "C_empty_cut" and not custom_slots:
         if tier == "B_solo_female":
             parts.append(NUDITY_LOCK_SOLO_F)
         elif tier == "B_solo_male":

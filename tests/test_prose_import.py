@@ -83,7 +83,7 @@ class ProseImport(unittest.TestCase):
                 '## 场次 印刷间\n**石青:** <d>[Chinese]灯亮了。</d>\n'
                 '乔禾：<d>[Chinese]without cutting。</d>')
         self.source.write_text(text, encoding='utf-8-sig'); original=self.source.read_bytes()
-        pipe = ('whale_pipeline.py', self.project, '--dry', '--total', '28')
+        pipe = ('whale_pipeline.py', self.project, '--dry', '--aspect', '9:16', '--total', '28')
         no_assets = self.cli(*pipe)
         self.assertEqual(no_assets.returncode, 1, no_assets.stdout + no_assets.stderr)
         self.assertTrue((self.project/'批量任务.json').exists(), no_assets.stdout + no_assets.stderr)
@@ -118,7 +118,7 @@ class ProseImport(unittest.TestCase):
     def test_unbound_names_never_default_to_first_speaker_or_shot(self):
         self.source.write_text('## 场次 堤岸\n**水杉：** `<d>[Chinese]等等。</d>`\n'
                                '**小麦：** `<d>[Chinese]好。</d>`',encoding='utf8')
-        run=self.cli('whale_pipeline.py',self.project,'--dry')
+        run=self.cli('whale_pipeline.py',self.project,'--dry','--aspect','9:16')
         self.assertNotEqual(run.returncode,0); self.assertIn('角色映射',run.stdout+run.stderr)
         self.assertFalse((self.project/'批量任务.json').exists())
 
@@ -138,7 +138,7 @@ class ProseImport(unittest.TestCase):
         assets=self.project/'00_资产'; assets.mkdir()
         for name in ('male_nude.png','female_nude.png','male_dressed.png','female_dressed.png','scene_main.png'):
             (assets/name).write_bytes(png_bytes())
-        done=self.cli('whale_pipeline.py',self.project,'--scene','studio','--total','30','--dry')
+        done=self.cli('whale_pipeline.py',self.project,'--scene','studio','--aspect','9:16','--total','30','--dry')
         self.assertEqual(done.returncode,0,done.stdout+done.stderr)
         self.assertEqual(self.cli('export_comfy_payload.py',self.project,'--offline').returncode,0)
         board=json.loads((self.project/choice.BOARD).read_text('utf8'))
@@ -175,19 +175,19 @@ class ProseImport(unittest.TestCase):
         self.source.write_text('### 场景 港口\n**阿梧**\n`<d>[Chinese]收到。</d>`\n'
                                '**阿蒲**：收到。\n阿梧：亲密站姿吗？',encoding='utf8')
         (self.project/'角色映射.json').write_text(json.dumps({'阿梧':'S2','阿蒲':'S1'}),encoding='utf8')
-        done=self.cli('whale_pipeline.py',self.project,'--dry','--total','15')
+        done=self.cli('whale_pipeline.py',self.project,'--dry','--aspect','9:16','--total','15')
         self.assertTrue((self.project/'批量任务.json').exists(),done.stdout+done.stderr)
         self.assertFalse((self.project/choice.CARD).exists())
         from dryrun_test import png_bytes
         assets=self.project/'00_资产'; assets.mkdir(); path=self.project/'批量任务.json'
         for name in {f for r in json.loads(path.read_text('utf8'))['batch_shots'] for f in r['ref_images']}:
             (assets/name).write_bytes(png_bytes())
-        done=self.cli('whale_pipeline.py',self.project,'--dry','--total','15'); self.assertEqual(done.returncode,0,done.stdout+done.stderr)
+        done=self.cli('whale_pipeline.py',self.project,'--dry','--aspect','9:16','--total','15'); self.assertEqual(done.returncode,0,done.stdout+done.stderr)
         self.assertEqual(self.cli('export_comfy_payload.py',self.project,'--offline').returncode,0)
         rows=json.loads(path.read_text('utf8'))['batch_shots']
         self.assertEqual([(r['dialogue']['speaker'],re.search(r'<d>\[Chinese\](.*?)</d>',r['prompt'])[1]) for r in rows],
                          [('阿梧','收到。'),('阿蒲','收到。'),('阿梧','亲密站姿吗？')])
-        override=self.cli('whale_pipeline.py',self.project,'--dry','--lines','1:S2:代词')
+        override=self.cli('whale_pipeline.py',self.project,'--dry','--aspect','9:16','--lines','1:S2:代词')
         self.assertNotEqual(override.returncode,0)
         (self.project/'角色映射.json').write_text('{}',encoding='utf8')
         self.assertNotEqual(self.cli('export_comfy_payload.py',self.project,'--offline').returncode,0)

@@ -54,8 +54,13 @@ class ProductionV4512Test(unittest.TestCase):
         self.assertGreaterEqual(len({s["size"] for s in shots}), 4)
         self.assertGreaterEqual(len({s["cam"] for s in shots}), 5)
 
-        # 6) Intimate audit metrics & receipt
+        # 6) Intimate audit metrics & receipt (with real assets in 00_资产/)
+        from dryrun_test import png_bytes
         with tempfile.TemporaryDirectory() as tmp:
+            assets = Path(tmp) / "00_资产"
+            assets.mkdir()
+            for fn in ("female_nude.png", "male_nude.png", "scene_main.png"):
+                (assets / fn).write_bytes(png_bytes())
             scene.save_project_artifacts(tmp, shots, actual, 75.0, aspect="16:9", wardrobe_mode="nude_all")
             rep = diff_audit.audit_project(tmp)
             self.assertEqual(rep["violations"], [], rep["violations"])
@@ -108,9 +113,13 @@ class ProductionV4512Test(unittest.TestCase):
         self.assertEqual(wf["400"]["inputs"]["strength_model"], 0.0)
 
         # 2) Standard drama receipt & advisor must not leak adult/intimate phrasing
+        from dryrun_test import png_bytes
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            (root / "00_资产").mkdir()
+            assets = root / "00_资产"
+            assets.mkdir()
+            for fn in ("ranger.png", "office.png"):
+                (assets / fn).write_bytes(png_bytes())
             (root / "剧本.md").write_text(
                 "# EP001 环保巡查\n- 林川：<d>[Chinese]今天天气不错，咱们去巡查吧。</d>\n",
                 encoding="utf-8",

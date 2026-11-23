@@ -657,9 +657,14 @@ def build_scene(chain, total_sec, poses, recipes=None, decisions=None):
     # 1) 严禁连续两镜同机位同景别，严禁连续两镜 static
     # 2) 极特写(macro)与全景(wide)作为标记镜头，用完一镜后若下一镜仍为同类极端景别，自动弹回工作景别(mcu/cu)
     # 3) 单人镜与后入系轮换池剔除 ots_depth（单人过肩必出同性双人，后入过肩丢失前后贴合）
+    # 4) 仅跳过单镜 one_take / 用户在分镜中显式锁定了机位的镜头；普通剧本自动生成的连续镜一律享受呼吸感与运镜轮换
     dynamic_cycle = ["push_tension", "arc_subtle", "tilt_up_desire", "handheld_breath", "high_downward", "low_upward"]
     for idx in range(1, len(shots)):
-        if shots[idx].get("custom_recipe") or shots[idx].get("action_decision") or shots[idx].get("staging_note"):
+        if shots[idx].get("custom_recipe"):
+            continue
+        if len(shots[idx].get("action_steps") or ()) > 1:
+            continue
+        if shots[idx].get("action_decision") and shots[idx]["action_decision"].get("explicit_camera"):
             continue
         prev_size = shots[idx - 1]["size"]
         curr_size = shots[idx]["size"]
@@ -670,7 +675,10 @@ def build_scene(chain, total_sec, poses, recipes=None, decisions=None):
         prev_cam = shots[idx - 1]["cam"]
         curr_cam = shots[idx]["cam"]
         if (shots[idx]["size"] == shots[idx - 1]["size"] and curr_cam == prev_cam) or ("static" in prev_cam and "static" in curr_cam):
-            shots[idx]["cam"] = dynamic_cycle[idx % len(dynamic_cycle)]
+            picked = dynamic_cycle[idx % len(dynamic_cycle)]
+            if picked == prev_cam:
+                picked = dynamic_cycle[(idx + 1) % len(dynamic_cycle)]
+            shots[idx]["cam"] = picked
 
     # 生成 CUT-READY 接戏过继契约（前镜末态 → 本镜起态）
     handoff_types = [
@@ -712,16 +720,42 @@ def resolve_slot_refs(shot_size, pose_id, is_nude_state=True, asset_dir=""):
     f_img = "female_nude.png" if is_nude_state else "female_dressed.png"
     m_img = "male_nude.png" if is_nude_state else "male_dressed.png"
 
-    # 扫描空间图池（若存在多视角图则按机位单槽轮换，否则平滑兜底为 scene_main.png）
+    # 扫描 00_资产/ 真实图片池：优先匹配实际存在的文件名（避免 00_资产 里叫其他名字时盲填不存在的默认假名）
     s_main = "scene_main.png"
     s_wall = "scene_wall.png"
     s_close = "scene_close.png"
     if asset_dir and os.path.isdir(asset_dir):
-        existing = set(os.listdir(asset_dir))
-        if s_wall not in existing:
-            s_wall = s_main
-        if s_close not in existing:
-            s_close = s_main
+        existing = sorted(
+            f for f in os.listdir(asset_dir)
+            if os.path.isfile(os.path.join(asset_dir, f))
+            and f.lower().endswith((".png", ".jpg", ".jpeg", ".webp"))
+            and f.isascii()
+        )
+        existing_set = set(existing)
+        if f_img not in existing_set:
+            f_cands = [f for f in existing if ("female" in f.lower() or f.lower().startswith("f_"))
+                       and (("nude" in f.lower()) == bool(is_nude_state) or ("nude" not in f.lower() and "dressed" not in f.lower()))]
+            if not f_cands:
+                f_cands = [f for f in existing if "female" in f.lower() or f.lower().startswith("f_")]
+            if f_cands:
+                f_img = f_cands[0]
+        if m_img not in existing_set:
+            m_cands = [f for f in existing if ("male" in f.lower() and "female" not in f.lower()) or f.lower().startswith("m_")]
+            m_state = [f for f in m_cands if ("nude" in f.lower()) == bool(is_nude_state)]
+            if m_state:
+                m_img = m_state[0]
+            elif m_cands:
+                m_img = m_cands[0]
+        if s_main not in existing_set:
+            s_cands = [f for f in existing if any(k in f.lower() for k in ("scene", "room", "bg", "env", "office", "corridor"))]
+            if s_cands:
+                s_main = s_cands[0]
+        if s_wall not in existing_set:
+            w_cands = [f for f in existing if "wall" in f.lower()]
+            s_wall = w_cands[0] if w_cands else s_main
+        if s_close not in existing_set:
+            c_cands = [f for f in existing if "close" in f.lower()]
+            s_close = c_cands[0] if c_cands else s_main
     else:
         # 即使离线未建实体文件，也在逻辑上标记空间视角归属，默认使用 scene_main.png 保底兼容
         s_wall = s_main

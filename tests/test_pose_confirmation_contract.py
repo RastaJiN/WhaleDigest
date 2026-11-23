@@ -270,7 +270,7 @@ class PoseConfirmationContract(unittest.TestCase):
             def run(script,*args):
                 return subprocess.run([sys.executable,'-X','utf8',str(SCRIPTS/script),*map(str,args)],
                                       capture_output=True,encoding='utf8',env=dict(os.environ,PYTHONUTF8='1'))
-            pipe=('whale_pipeline.py',folder,'--dry','--total','18')
+            pipe=('whale_pipeline.py',folder,'--dry','--aspect','9:16','--total','18')
             wrong=('whale_scene.py','--out-dir',folder,'--chain','undress,cowgirl')
             self.assertNotEqual(run(*wrong).returncode,0)
             self.assertEqual(run(*pipe).returncode,3)

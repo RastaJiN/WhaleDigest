@@ -10,7 +10,8 @@ import json
 import re
 from whale_task_source import (load_task_source, source_record, refresh_status,
                                  require_source_audit, TaskSourceError, validate_batch_metadata,
-                                 stage_record, gate_evidence, validate_asset_image)
+                                 stage_record, gate_evidence, validate_asset_image,
+                                 validate_project_assets)
 from whale_compiler import lint_task_prompt
 
 STAGE_NAMES = {
@@ -62,18 +63,20 @@ def audit_step_1(project_dir):
             return "女" in stem or bool(re.search(r"(?:^|[^a-z])female(?:$|[^a-z])", stem))
         return bool(re.search(r"场景|scene|room|corridor", stem))
     valid = []
+    invalid = []
     for name in files:
         try:
             validate_asset_image(os.path.join(asset_dir, name))
             valid.append(name)
         except (ValueError, OSError):
-            continue
-    has_male = any(role(name, "male") for name in valid)
-    has_female = any(role(name, "female") for name in valid)
-    has_scene = any(role(name, "scene") for name in valid)
+            invalid.append(name)
 
-    # 资产校验逻辑迁移：仅作路径存在性校验
-    return True, "角色母版基准目录验收 PASS！资产匹配校验已移至 Gate 4 动态按需执行。"
+    if not valid:
+        return False, (
+            f"资产目录 '00_资产/' 中没有任何有效可读图片文件（实有文件: {files[:8]}）！"
+            "必须先放入真实角色/场景参考图，禁止空目录假通过 Gate 1。"
+        )
+    return True, f"资产目录基础核验 PASS（实测 {len(valid)} 张有效图片：{valid[:8]}）；逐镜绑定核验将在 Gate 4/5 严格执行。"
 
 def audit_step_2(project_dir):
     """门禁 2：刀锋剧本三幕式与道具流转检查"""
@@ -178,6 +181,8 @@ def audit_step_3(project_dir):
     ))
     if not marks:
         return False, "分镜未检测到逐镜 SHOT 标记"
+    cam_tokens = []
+    size_tokens = []
     for index, mark in enumerate(marks):
         block = content[mark.start():marks[index+1].start() if index+1 < len(marks) else len(content)]
         if not re.search(r"Track:[ \t]*Ref2V\b", block, re.IGNORECASE):
@@ -188,10 +193,21 @@ def audit_step_3(project_dir):
         duration = float(duration_match.group(1))
         if not 39/24 - .021 <= duration <= 294/24 + .021:
             return False, f"镜头 {index+1} 时长 {duration} 超出 H3 39..294 帧范围"
-        if not re.search(r"\b(?:wide|mcu|cu|macro|hip|face)\b|全景|中景|中近景|近景|微距|特写", block, re.IGNORECASE):
+        sz_m = re.search(r"\b(wide|mcu|cu|macro|hip|face)\b|(全景|中景|中近景|近景|微距|特写)", block, re.IGNORECASE)
+        if not sz_m:
             return False, f"镜头 {index+1} 缺少景别"
-        if not re.search(r"机位[：:]|Camera:|static_|slow_push|push_tension|arc_subtle|固定|过肩|俯|仰|推|拉|摇|手持", block, re.IGNORECASE):
+        size_tokens.append((sz_m.group(1) or sz_m.group(2) or "").lower())
+        cam_m = re.search(
+            r"\b(push_tension|pull_reveal|tilt_up_desire|tilt_down_impact|ots_depth|arc_subtle|handheld_breath|"
+            r"low_upward|high_downward|static_side|static_rear|static_front|low_hip|slow_push|follow_soft|"
+            r"pan_left_right|track_lateral)\b|(?:机位[：:]\s*([^\r\n|]+))|(?:Camera:\s*([^\r\n]+))|"
+            r"(固定|过肩|俯|仰|推|拉|摇|手持)",
+            block, re.IGNORECASE,
+        )
+        if not cam_m:
             return False, f"镜头 {index+1} 缺少机位"
+        raw_cam = next((g.strip() for g in cam_m.groups() if g and g.strip()), "")
+        cam_tokens.append(raw_cam.lower())
         speeches = re.findall(r"<d>(.*?)</d>", block, re.IGNORECASE | re.DOTALL)
         if len(re.findall(r"<d>", block, re.IGNORECASE)) != len(speeches):
             return False, f"镜头 {index+1} 台词标签未闭合"
@@ -203,7 +219,27 @@ def audit_step_3(project_dir):
             required += dialogue_needed_seconds(speech)
         if required > duration + .021:
             return False, f"镜头 {index+1} 台词需要 {required:.3f}s，镜长仅 {duration}s"
-    return True, f"逐镜结构、轨道、景别机位、H3 时长与共享台词预算 PASS ({len(marks)} 镜)"
+
+    # 分镜视听活性硬闸：>=5 镜的分镜禁止全片单机位僵死或静态机位超过 60%
+    if len(marks) >= 5:
+        unique_cams = {c for c in cam_tokens if c}
+        if len(unique_cams) <= 1:
+            return False, (
+                f"分镜运镜僵化拦截：共 {len(marks)} 镜，却全部是同一个机位（{sorted(unique_cams)}）！"
+                "必须按节奏与情绪配置多机位运镜与景别呼吸变化。"
+            )
+        static_count = sum(1 for c in cam_tokens if "static" in c or "固定" in c)
+        if static_count > len(marks) * 0.6:
+            return False, (
+                f"分镜运镜僵化拦截：共 {len(marks)} 镜中静态机位占 {static_count} 镜（>{int(len(marks)*0.6)} 镜上限），"
+                "缺乏运镜呼吸感与节奏推进！"
+            )
+        if len({s for s in size_tokens if s}) <= 1:
+            return False, (
+                f"分镜景别单一拦截：共 {len(marks)} 镜全为单一景别（{sorted(set(size_tokens))}），"
+                "缺少全景/中近景/近景/特写阶梯呼吸！"
+            )
+    return True, f"逐镜结构、轨道、景别机位({len(set(cam_tokens))}机位/{len(set(size_tokens))}景别)、H3 时长与共享台词预算 PASS ({len(marks)} 镜)"
 
 
 def audit_step_4(project_dir):
@@ -216,17 +252,12 @@ def audit_step_4(project_dir):
             validate_batch_metadata(batch)
         except ValueError as exc:
             issues.append(str(exc))
-        if not issues and 'pose_input_hashes' in batch:
-            # Gate 1's inventory is necessary, but a different performer's master
-            # in the same slot is not evidence for the file this shot will use.
-            from pathlib import Path
-            assets=(Path(project_dir)/'00_资产').resolve()
-            for name in sorted({f for s in batch['batch_shots'] for f in s['ref_images']}):
-                p=(assets/name).resolve()
-                if not p.is_relative_to(assets): raise ValueError('参考图不在项目资产目录内')
-                if not p.is_file():
-                    raise ValueError(f'资产文件 {name} 不存在于 00_资产')
-                validate_asset_image(p)
+        # 无条件逐镜核验参考图物理存在与可读性（不再用 'pose_input_hashes' in batch 偷偷放行旧任务或假文件名）
+        if not issues:
+            try:
+                validate_project_assets(project_dir, batch)
+            except TaskSourceError as exc:
+                issues.append(str(exc))
         for index, shot in enumerate(batch["batch_shots"], 1):
             sid = shot.get("shot_id", shot.get("id", index))
             # 检查是否为节拍感知模式 (Beat: ...)
