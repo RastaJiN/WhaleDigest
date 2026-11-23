@@ -88,10 +88,14 @@ def diagnose_project(project_dir):
 
     # ── 2. 正反打与视线交锋密度诊断 ──
     if not used_srs:
+        if has_action_scene:
+            srs_action = f"建议在对白交锋处与主力肉戏中段插入 `srs_male ➔ srs_female` 单人正反打（男主微仰/慢推、女主微俯/呼吸手持，严禁单人镜配 `ots_depth` 过肩，配合 {aspect_label} 保持双视角情绪反馈）。"
+        else:
+            srs_action = f"建议在人物对白交锋处穿插单人正反打镜头（使用平推或微俯/微仰单人特写，避免单人镜误配过肩机位），增强 {aspect_label} 的视线交流与节奏变化。"
         suggestions.append({
             "dimension": "【维度 2 · 缺少单人正反打 (Shot / Reverse-Shot)】",
-            "issue": "全片未显式排布 `srs_male`(男正打) 与 `srs_female`(女反打)，全双人同框会导致分不清谁在说话、眼神戏缺失。",
-            "action": f"建议在对白交锋处与主力冲撞中段插入 `srs_male ➔ srs_female` 正反打序列（自动物理隔离异性槽位防鬼脸，并用 `ots_depth` 过肩景深撑开 {aspect_label}）。"
+            "issue": "全片未显式排布单人正反打镜头，全双人同框会导致分不清谁在说话、眼神戏缺失。",
+            "action": srs_action,
         })
         upgrade_chain_prefix.extend(["srs_male", "srs_female"])
         upgrade_chain_mid.extend(["srs_male", "srs_female"])
@@ -99,17 +103,19 @@ def diagnose_project(project_dir):
     # ── 3. 12大主动表演情绪光谱诊断 ──
     dialogues = re.findall(r"<d>(?:\[Chinese\])?(.*?)</d>", all_text)
     emo_recommendations = []
+    default_emo = "forbearance" if has_action_scene else "default"
     for idx_d, d_line in enumerate(dialogues[:8], 1):
         d_clean = d_line.strip()
         if not d_clean:
             continue
-        auto_ek = resolve_emotion_key("", d_clean, fallback="forbearance")
-        emo_recommendations.append(f"台词 {idx_d}「{d_clean[:18]}」➔ 匹配情绪 `{auto_ek}` ({EMOTION_MUSCLE_CUES[auto_ek][:48]}...)")
+        auto_ek = resolve_emotion_key("", d_clean, fallback=default_emo)
+        if auto_ek in EMOTION_MUSCLE_CUES:
+            emo_recommendations.append(f"台词 {idx_d}「{d_clean[:18]}」➔ 匹配情绪 `{auto_ek}` ({EMOTION_MUSCLE_CUES[auto_ek][:48]}...)")
     if emo_recommendations:
         suggestions.append({
             "dimension": "【维度 3 · 演员四维解剖情绪底色配对】",
             "issue": f"检测到 {len(dialogues)} 句台词，若不指定主动表演情绪底色，角色易呈木头面瘫。",
-            "action": "已为您自动匹配吞鲸 4.0 四维面部肌肉指令（支持在 `--lines` 中用 `男子A(生气):台词` 显式锁定）：" + " | ".join(emo_recommendations[:5])
+            "action": "已为您自动匹配吞鲸 4.0 四维面部肌肉指令（支持在 `--lines` 中用 `角色(情绪):台词` 显式锁定）：" + " | ".join(emo_recommendations[:5])
         })
 
     # ── 4. 空间图池单槽轮换诊断（专治 1 张场景图拍到底）──
@@ -117,10 +123,14 @@ def diagnose_project(project_dir):
     if os.path.isdir(asset_dir):
         scene_files = [f for f in os.listdir(asset_dir) if any(k in f.lower() for k in ("scene", "room", "wall", "close", "场景"))]
     if len(scene_files) <= 1:
+        if has_action_scene:
+            sp_issue = f"当前 `00_资产/` 仅检测到 {len(scene_files)} 张场景底图 ({scene_files})。一图拍到底会导致站立镜前戏躺回床上、特写背景模糊穿帮。"
+        else:
+            sp_issue = f"当前 `00_资产/` 仅检测到 {len(scene_files)} 张场景底图 ({scene_files})。单张全景图拍到底易导致反打视角失真或特写背景穿帮。"
         suggestions.append({
             "dimension": "【维度 4 · 空间参考图单一预警（防切特写穿帮/丢背景）】",
-            "issue": f"当前 `00_资产/` 仅检测到 {len(scene_files)} 张场景底图 ({scene_files})。一图拍到底会导致站立镜前戏躺回床上、特写背景模糊穿帮。",
-            "action": "建议采用吞鲸 4.0【空间图池单槽轮换法】，在 `00_资产/` 补齐 3 张同风格空间图（每镜 `<Picture 3>` 只挂 1 张不混喂）：① scene_main.png(主全景) ② scene_wall.png(立面墙镜) ③ scene_close.png(承托面近景俯拍，根治切特写丢背景)"
+            "issue": sp_issue,
+            "action": "建议采用吞鲸 4.0【空间图池单槽轮换法】，按需补齐多视角同风格场景底图（主全景、反打/立面视角、特写近景），每镜按需挂 1~9 张对应参考图。"
         })
 
     # ── 4b. 去AI味活人台词与声学特效诊断 ──
@@ -147,7 +157,7 @@ def diagnose_project(project_dir):
             suggestions.append({
                 "dimension": "【维度 5 · 固定三脚架机位占比过高（画面死气沉沉）】",
                 "issue": f"当前 {len(shots)} 镜中有 {static_cnt} 镜为 static 死机位（占比 {static_cnt/len(shots)*100:.0f}%）。",
-                "action": "建议重新通过吞鲸 4.0 `whale_scene.py` Auto-DP 引擎编译，自动将死机位替换为 `push_tension`(慢推)、`tilt_up_desire`(垂直上摇)、`ots_depth`(深景深过肩)、`handheld_breath`(呼吸感手持)。"
+                "action": "建议重新通过吞鲸 4.0 `whale_scene.py` Auto-DP 引擎编译，自动将死机位替换为 `push_tension`(慢推)、`arc_subtle`(微弧移)、`high_downward`(微俯)、`low_upward`(微仰)、`handheld_breath`(呼吸感手持)。"
             })
 
     # 生成推荐的 4.0 升维完整调度链

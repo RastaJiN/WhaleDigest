@@ -1,7 +1,7 @@
 ---
 name: tunjing-baodian
 description: "Use when producing or auditing short dramas with WhaleDigest."
-version: 4.5.11
+version: 4.5.12
 author: 吞鲸工作室 (Swallowing Whale Studio)
 license: MIT
 metadata:
@@ -9,7 +9,7 @@ metadata:
     tags: [tunjing, baodian, drama, pure-ref2v, gatekeeper]
 ---
 
-# 🐳 WhaleDigest · 全剧集视听导演调度生产引擎 (WhaleDigest v4.5.11)
+# 🐳 WhaleDigest · 全剧集视听导演调度生产引擎 (WhaleDigest v4.5.12)
 
 > 工程验收说明（2026-11-23）：当前代码接口与验收边界见 [engineering-contract.md](references/engineering-contract.md)。六字段结构、独立 Camera/SPEECH 与实际输入证据由代码检查；`axis` 仅作兼容警告。纯对白、单人镜与空镜按实际内容验收。固定随包 HMAC 密钥用于完整性校验，不能阻止拥有本机写权限的人修改代码。自检覆盖中性样本的横竖屏软件链路；模型加载、实际渲染、画面质量和后期依赖须另行实测。Gate 1 仅作资产基准审计，动态按需校验移至 Gate 4，支持单人戏动态匹配。
 

@@ -270,14 +270,15 @@ POSE_SHOT_PLAN = {
     "nipple_lick":     [("macro", "push_tension"), ("face", "high_downward")],
     "undress":         [("mcu", "tilt_up_desire"), ("cu", "push_tension")],
 
-    # 主力交合：中近景稳健侧拍/弧移建立 ➔ 腰胯微距 ➔ 双人近景反应（双人交合体位不再默认给 face 以免被槽位隔离暗拆成单人女镜；后入系禁用 ots_depth/static_rear；站立系禁用 wide）
-    "missionary":      [("mcu", "arc_subtle"), ("hip", "low_hip"), ("cu", "high_downward")],
-    "missionary_legup":[("mcu", "push_tension"), ("hip", "low_hip"), ("cu", "handheld_breath")],
-    "doggy":           [("mcu", "static_side"), ("hip", "low_hip"), ("cu", "arc_subtle")],
+    # 主力交合：错开各体位首拍/反应拍机位梯度（static_side / arc_subtle / high_downward / low_upward / handheld_breath / push_tension），
+    # 避免多体位连用时构图单一；同时禁用 face 暗拆、后入正背 static_rear、后入 ots_depth 与站立 wide
+    "missionary":      [("mcu", "high_downward"), ("hip", "low_hip"), ("cu", "handheld_breath")],
+    "missionary_legup":[("mcu", "push_tension"), ("hip", "low_hip"), ("cu", "high_downward")],
+    "doggy":           [("mcu", "arc_subtle"), ("hip", "low_hip"), ("cu", "high_downward")],
     "table_doggy":     [("mcu", "static_side"), ("hip", "low_hip"), ("cu", "handheld_breath")],
     "stand_doggy_wall":[("mcu", "static_side"), ("hip", "low_hip"), ("cu", "arc_subtle")],
-    "stand_bend_doggy":[("mcu", "static_side"), ("hip", "low_hip")],
-    "bedside_stand":   [("mcu", "arc_subtle"), ("hip", "low_hip")],
+    "stand_bend_doggy":[("mcu", "arc_subtle"), ("hip", "low_hip")],
+    "bedside_stand":   [("mcu", "low_upward"), ("hip", "low_hip")],
     "anal":            [("mcu", "static_side"), ("hip", "low_hip")],
     "cowgirl":         [("mcu", "low_upward"), ("hip", "low_hip"), ("cu", "push_tension")],
     "cowgirl_upright": [("mcu", "tilt_up_desire"), ("cu", "low_upward")],
@@ -603,6 +604,54 @@ def build_scene(chain, total_sec, poses, recipes=None, decisions=None):
                                 f"repositioning hands and hips on the support surface and realigning smoothly in one continuous take"),
                     "type": "transition",
                 })
+
+    # 肉戏链自动补全男女主不同角度的独立情绪反馈镜（srs_male 微仰/慢推 + srs_female 微俯/呼吸手持）：
+    # 仅在纯自由链（无冻结 decisions）、至少含 2 个非终结肉戏主力体位且创作者未手写正反打时触发，
+    # 避免破坏已冻结分镜或纯单镜/纯文戏测试，同时兑现“男女主不同角度情绪反馈”硬核指标。
+    if not decisions:
+        action_main_ids = [
+            p for p in chain
+            if p not in STAGING_IDS and p not in PROP_IDS and p not in FINISH_IDS and p not in recipes
+        ]
+        if len(set(action_main_ids)) >= 2:
+            has_srs_m = any(s.get("pose") == "srs_male" for s in shots)
+            has_srs_f = any(s.get("pose") == "srs_female" for s in shots)
+            tr_indices = [idx for idx, s in enumerate(shots) if s.get("type") == "transition"]
+            if tr_indices:
+                anchor = tr_indices[0]
+                insert_pack = []
+                if not has_srs_m:
+                    insert_pack.append({
+                        "pose": "srs_male",
+                        "pose_zh": "男主施压情绪反馈",
+                        "pose_en": "Male lead dominant emotional reaction",
+                        "size": "cu",
+                        "cam": "low_upward",
+                        "text": "男主压迫情绪反打：微仰角近景捕捉男主紧绷下颌、炽热凝视与急促胸膛起伏",
+                        "text_en": (
+                            "Single-subject close-up on <Subject 2>: tense jawline, focused intense gaze, "
+                            "rapid heavy chest breathing, sweat sheen fading into matte skin texture"
+                        ),
+                        "type": "staging",
+                        "emotion": "surge",
+                    })
+                if not has_srs_f:
+                    insert_pack.append({
+                        "pose": "srs_female",
+                        "pose_zh": "女主失神情绪反馈",
+                        "pose_en": "Female lead breathless emotional reaction",
+                        "size": "face",
+                        "cam": "high_downward",
+                        "text": "女主承受情绪反打：微俯角面部特写捕捉女主微张唇瓣、迷离上翻眼神与肩颈轻颤",
+                        "text_en": (
+                            "Single-subject facial close-up on <Subject 1>: parted lips catching a ragged breath, "
+                            "fluttering eyelids, flushed cheeks and trembling collarbones"
+                        ),
+                        "type": "staging",
+                        "emotion": "ecstasy",
+                    })
+                if insert_pack:
+                    shots = shots[:anchor] + insert_pack + shots[anchor:]
 
     # Auto-DP 动态运镜与工作景别阶梯（Working Shot Ladder）巡检：
     # 1) 严禁连续两镜同机位同景别，严禁连续两镜 static

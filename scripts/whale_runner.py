@@ -258,8 +258,17 @@ def build_shot_workflow(base_wf, shot, custom_seed=None, prefix_override=None, a
             del wf["265"]["inputs"][port_key]
 
     if "400" in wf:
+        # 严格按镜头显式值控制 MysticXXX 成人 LoRA；未显式声明时仅对真实肉戏体位默认 0.45，纯正剧/动画/未标体位一律强制 0.0 防污染
+        from whale_core import STAGING_IDS
+        pose_head = str(shot.get("pose") or "").split("->")[0]
+        if "lora_mystic_strength" in shot and shot["lora_mystic_strength"] is not None:
+            mystic_w = float(shot["lora_mystic_strength"])
+        elif pose_head and pose_head not in STAGING_IDS:
+            mystic_w = 0.45
+        else:
+            mystic_w = 0.0
         wf["400"]["inputs"]["lora_name"] = shot.get("lora_mystic_name", "MysticXXX_MMH3-V5-ref2va.safetensors")
-        wf["400"]["inputs"]["strength_model"] = float(shot.get("lora_mystic_strength", 0.45))
+        wf["400"]["inputs"]["strength_model"] = mystic_w
 
     if "397" in wf and custom_seed is not None:
         wf["397"]["inputs"]["seed"] = int(custom_seed)

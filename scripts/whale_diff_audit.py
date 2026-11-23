@@ -245,6 +245,54 @@ def audit_project(project_dir):
     report["metrics"]["undress_wide_risks"] = undress_wide_risks
     report["metrics"]["dialogue_repetition_count"] = len(dup_lines)
 
+    # 区分正剧/动画项目与含肉戏项目，并统计肉戏 5 项硬核视听指标（避免正剧/动画被硬套肉戏签字单话术）
+    from whale_core import STAGING_IDS, FINISH_IDS
+    intimate_poses = []
+    pose_switches = 0
+    junction_closeups = 0
+    has_male_reaction = False
+    has_female_reaction = False
+    unique_cams = set()
+    unique_sizes = set()
+    for s in shots:
+        p_raw = str(s.get("pose") or s.get("pose_id") or "")
+        p_head = p_raw.split("->")[0]
+        sz_s = str(s.get("shot_size") or s.get("size") or "")
+        cam_s = str(s.get("camera_motion") or s.get("camera") or "")
+        if cam_s:
+            unique_cams.add(cam_s)
+        if sz_s:
+            unique_sizes.add(sz_s)
+        if "->" in p_raw:
+            pose_switches += 1
+        if p_head and p_head not in STAGING_IDS:
+            intimate_poses.append(p_head)
+            if sz_s in ("hip", "macro"):
+                junction_closeups += 1
+        if p_head == "srs_male" or s.get("tier") == "B_solo_male":
+            has_male_reaction = True
+        if p_head == "srs_female" or s.get("tier") == "B_solo_female":
+            has_female_reaction = True
+
+    distinct_main_intimate = sorted({p for p in intimate_poses if p not in FINISH_IDS})
+    is_intimate_project = bool(intimate_poses) or any(
+        float(s.get("lora_mystic_strength") or 0.0) > 0.0 for s in shots
+    )
+    report["metrics"]["project_mode"] = "intimate_drama" if is_intimate_project else "standard_drama"
+    report["metrics"]["unique_cameras"] = len(unique_cams)
+    report["metrics"]["unique_shot_sizes"] = len(unique_sizes)
+    if is_intimate_project:
+        effective_switches = max(pose_switches, max(0, len(distinct_main_intimate) - 1))
+        report["metrics"]["intimate_coverage"] = {
+            "distinct_main_poses": distinct_main_intimate,
+            "pose_switch_count": effective_switches,
+            "junction_closeup_count": junction_closeups,
+            "has_male_reaction": has_male_reaction,
+            "has_female_reaction": has_female_reaction,
+            "unique_cameras": len(unique_cams),
+            "unique_shot_sizes": len(unique_sizes),
+        }
+
     _require_report_source(project_dir, report)
     return report
 
@@ -316,24 +364,42 @@ def write_producer_receipt(project_dir, report):
     """
     batch_file, data, sha = _require_report_source(project_dir, report)
     shots = data["batch_shots"]
+    is_intimate = report.get("metrics", {}).get("project_mode") == "intimate_drama"
+    icov = report.get("metrics", {}).get("intimate_coverage") or {}
+
+    if is_intimate:
+        self_cert = [
+            f"1. **提示词逐字核对**: 全部 {len(shots)} 镜已过机器逐字符盲检（真源命中率 `{report['metrics'].get('truth_purity')}`，0 汉字残留、0 负面块混入、0 字幕诱导词、0 碎标点残骸）。",
+            "2. **参考图与人物对齐**: 见下方逐镜总表（单人正反打已自动将缺席异性槽替换为场景底图防鬼脸，按本镜实际 1~9 槽精准绑定）。",
+            f"3. **体位与换位正确性**: 主力体位 `{icov.get('distinct_main_poses', [])}`，体位切换 `{icov.get('pose_switch_count', 0)}` 次；机位 `{icov.get('unique_cameras', 0)}` 种、景别 `{icov.get('unique_shot_sizes', 0)}` 种。",
+            f"4. **交合特写与情绪反馈**: 交合特写（`hip`/`macro`）共 `{icov.get('junction_closeup_count', 0)}` 镜（表中已用 `🔥【交合微距】` 高亮）；情绪反馈 男主=`{'✅' if icov.get('has_male_reaction') else '⚠️缺失'}` / 女主=`{'✅' if icov.get('has_female_reaction') else '⚠️缺失'}`。",
+            "5. **提交确认**: 门禁状态保存后，运行器核验当前任务和状态对应的 16 位完整性令牌；任务哈希本身不是提交令牌。",
+        ]
+        table_header = "| 镜号 | 时长(帧) | 景别/运镜 | 体位真源 ID | `<Picture 1>` 槽1 | `<Picture 2>` 槽2 | `<Picture 3>` 槽3 | 特写/台词核对 |"
+    else:
+        self_cert = [
+            f"1. **提示词逐字核对**: 全部 {len(shots)} 镜已过机器逐字符盲检（0 汉字残留、0 负面块混入、0 字幕诱导词、0 碎标点残骸）。",
+            "2. **参考图与槽位对齐**: 见下方逐镜总表（纯正剧/动画模式，按镜头实际 1~9 张参考图绑定，未使用槽位自动断开，成人 LoRA 默认归零 0.0）。",
+            f"3. **视听构图多样性**: 本批覆盖 `{report['metrics'].get('unique_cameras', 0)}` 种机位、`{report['metrics'].get('unique_shot_sizes', 0)}` 种景别。",
+            "4. **对白与节奏核对**: 见下表逐镜时长、帧数与对白内容。",
+            "5. **提交确认**: 门禁状态保存后，运行器核验当前任务和状态对应的 16 位完整性令牌；任务哈希本身不是提交令牌。",
+        ]
+        table_header = "| 镜号 | 时长(帧) | 景别/运镜 | 镜头类型/原语 | `<Picture 1>` 槽1 | `<Picture 2>` 槽2 | `<Picture 3>` 槽3 | 备注/台词核对 |"
 
     lines = [
         "# 📋 吞鲸工作室 · 监制渲染前五维核对签字单 (Producer Pre-Render Receipt)",
         f"- **项目目录**: `{os.path.abspath(project_dir)}`",
+        f"- **项目模式**: `{'含肉戏剧集 (intimate_drama)' if is_intimate else '纯正剧/动画 (standard_drama)'}`",
         f"- **任务来源绝对路径**: `{batch_file}`",
         f"- **任务包 SHA-256 鎖**: `{sha}`",
         f"- **总镜数 / 总时长 / 总帧数**: {len(shots)} 镜 / {data.get('total_duration', 0)}s / {data.get('total_frames', 0)} 帧",
         f"- **机器盲检结论**: **{'✅ 0 违规通过（等待监制签字点火）' if not report.get('violations') else '❌ 存在违规（已物理锁死禁止渲染）'}**",
         "",
         "## 一、五维核心问题一次性机器自证",
-        f"1. **提示词逐字核对**: 全部 {len(shots)} 镜已过机器逐字符盲检（真源命中率 `{report['metrics'].get('truth_purity')}`，0 汉字残留、0 负面块混入、0 字幕诱导词、0 碎标点残骸）。",
-        "2. **参考图与人物对齐**: 见下方逐镜总表（单人正反打已自动将缺席异性槽替换为场景底图防鬼脸，`<Picture 3>` 全程不断开）。",
-        "3. **体位与换位正确性**: 全片姿势均调用宝典 87 套原生真源矩阵，体位切换处已含物理换位过渡。",
-        "4. **交合特写与阻断微距**: 表中已用 `🔥【交合微距】` 与 `⚡【阻断微距】` 高亮标出。",
-        "5. **提交确认**: 门禁状态保存后，运行器核验当前任务和状态对应的 16 位完整性令牌；任务哈希本身不是提交令牌。",
+        *self_cert,
         "",
         "## 二、逐镜五维绑定对账总表（监制扫一眼即可拍板）",
-        "| 镜号 | 时长(帧) | 景别/运镜 | 体位真源 ID | `<Picture 1>` 女槽 | `<Picture 2>` 男槽 | `<Picture 3>` 场景槽 | 特写/台词核对 |",
+        table_header,
         "| :--- | :---: | :---: | :--- | :--- | :--- | :--- | :--- |",
     ]
 
@@ -354,10 +420,10 @@ def write_producer_receipt(project_dir, report):
         line_str = f"🗣️「{d_m.group(1).strip()}」" if d_m else "-"
 
         tag = ""
-        if sz in ("hip", "macro") and pose not in ("prop_insert", "cut_insert", "env_establish"):
+        if is_intimate and sz in ("hip", "macro") and pose not in ("prop_insert", "cut_insert", "env_establish"):
             tag = "🔥【交合微距】 "
         elif sz == "macro" or pose in ("prop_insert", "cut_insert"):
-            tag = "⚡【阻断/道具微距】 "
+            tag = "⚡【道具/细节微距】 "
         elif pose in ("srs_male", "srs_female"):
             tag = "👁️【单人正反打】 "
 
