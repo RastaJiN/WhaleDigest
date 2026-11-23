@@ -73,6 +73,14 @@ def audit_project(project_dir):
         validate_project_assets(project_dir, batch_data)
     except TaskSourceError as exc:
         report["violations"].append(f"[资产未绑定/物理缺失] {exc}")
+    try:
+        from whale_h3_prompt import load_project_voice_registry, validate_batch_voice_consistency
+        vreg = load_project_voice_registry(project_dir)
+        v_errs, v_warns = validate_batch_voice_consistency(batch_data, vreg)
+        report["violations"].extend(v_errs)
+        report["warnings"].extend(v_warns)
+    except Exception as exc:
+        report["violations"].append(f"[音色账本错误] {exc}")
     report["files_checked"][batch_file.name] = True
 
     shots = batch_data["batch_shots"]
@@ -285,6 +293,24 @@ def audit_project(project_dir):
     is_intimate_project = bool(intimate_poses) or any(
         float(s.get("lora_mystic_strength") or 0.0) > 0.0 for s in shots
     )
+    # ── 8. 场景材质与声场词连带排查（吸取《深渊之契》014B 教训：工业/办公/桌面/椅子/走廊场景声场禁止残留床垫词诱发变床）──
+    bed_leak_rx = re.compile(r"\b(mattress|bedsheets?|pillow|bedframe|bed\s+creak)\b", re.I)
+    for idx, s in enumerate(shots, 1):
+        sid = s.get("shot_id") or s.get("id") or idx
+        prompt_l = str(s.get("prompt") or "").lower()
+        pose_l = str(s.get("pose") or "").lower()
+        # 仅当提示词明确处于非床硬台面/办公/椅子/走廊场景时才拦截床垫词（酒店客房卧室内的腿坐 lap_sit 属于卧室场景不误伤）
+        is_hard_non_bed = (
+            any(k in prompt_l for k in ("industrial", "steel desk", "control desk", "office desk", "dining table", "kitchen counter", "chair seat", "corridor", "hallway"))
+            or pose_l == "table_doggy"
+        )
+        if is_hard_non_bed:
+            leaks = bed_leak_rx.findall(prompt_l)
+            if leaks:
+                report["violations"].append(
+                    f"镜头 {sid} [非床场景床垫词污染(014B)]：桌面/办公/椅子/走廊场景的画面或声场中残留床垫诱导词 {sorted(set(leaks))}，极易把硬台面脑补成软床！"
+                )
+
     report["metrics"]["project_mode"] = "intimate_drama" if is_intimate_project else "standard_drama"
     report["metrics"]["unique_cameras"] = len(unique_cams)
     report["metrics"]["unique_shot_sizes"] = len(unique_sizes)

@@ -258,6 +258,14 @@ def audit_step_4(project_dir):
                 validate_project_assets(project_dir, batch)
             except TaskSourceError as exc:
                 issues.append(str(exc))
+        # 校验全集音色账本（若项目含 voice_bible.json）及画外音/独白闭嘴锁、跨镜声源一致性
+        if not issues:
+            from whale_h3_prompt import load_project_voice_registry, validate_batch_voice_consistency
+            vreg = load_project_voice_registry(project_dir)
+            v_errs, v_warns = validate_batch_voice_consistency(batch, vreg)
+            issues.extend(v_errs)
+            for w in v_warns:
+                print(f"[音色提醒] {w}")
         for index, shot in enumerate(batch["batch_shots"], 1):
             sid = shot.get("shot_id", shot.get("id", index))
             # 检查是否为节拍感知模式 (Beat: ...)

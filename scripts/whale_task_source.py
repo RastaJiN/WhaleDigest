@@ -435,7 +435,8 @@ def validate_image_references(refs):
 
 _VALIDATOR_NAMES = ("whale_task_source.py", "whale_compiler.py", "whale_gatekeeper.py",
                     "whale_diff_audit.py", "whale_audio_contract.py", "whale_core.py", "whale_blocking.py",
-                    "whale_pose_choice.py", "whale_prose.py", "whale_scene.py", "whale_shot_facts.py")
+                    "whale_pose_choice.py", "whale_prose.py", "whale_scene.py", "whale_shot_facts.py",
+                    "whale_h3_prompt.py")
 
 
 def _file_digest(path):

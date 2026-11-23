@@ -89,7 +89,12 @@ def _validate_dialogue(text):
             errors.append("对白错误：逐字台词必须写在同一行")
         line_start = text.rfind("\n", 0, match.start()) + 1
         prefix = text[line_start:match.start()]
-        if not re.fullmatch(r"[ \t]*SPEECH:[ \t]*(?:From[ \t]+[^<>\r\n]*?[ \t])?(?:ONLY[ \t]+)?(?:<Subject\s+\d+>|(?:The\s+)?(?:woman|man|speaker|narrator))[^<>\r\n]*?\b(?:says|asks|replies|whispers|shouts|speaks|calls|murmurs|cries|answers|states|declares|adds|continues)\b[^<>\r\n]*:[ \t]*", prefix, re.IGNORECASE):
+        if not re.fullmatch(
+            r"[ \t]*SPEECH:[ \t]*(?:From[ \t]+[^<>\r\n]*?[ \t])?(?:ONLY[ \t]+)?"
+            r"(?:<Subject\s+\d+>|(?:The\s+)?(?:off-screen\s+)?(?:woman|man|speaker|narrator|boy|girl|child|voice))"
+            r"[^<>\r\n]*?\b(?:says|asks|replies|whispers|shouts|speaks|calls|murmurs|cries|answers|states|declares|adds|continues)\b[^<>\r\n]*:[ \t]*",
+            prefix, re.IGNORECASE,
+        ):
             errors.append("结构错误：每句真实台词必须位于独立 SPEECH: 行，包含说话者和发声动词")
     return errors
 

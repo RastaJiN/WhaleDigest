@@ -452,6 +452,7 @@ def main():
     print(f"工作流模板: {wf_path}")
     with open(wf_path, "r", encoding="utf-8-sig") as f:
         base_wf = json.load(f)
+    save_node_id = _inspect_h3_workflow(base_wf).get("save_id") or "364"
 
     all_shots = batch.get("batch_shots", [])
     try:
@@ -624,7 +625,15 @@ def main():
                     elapsed = round(time.monotonic() - t_start, 1)
                     st_info = hist[pid].get("status", {})
                     outputs = hist[pid].get("outputs", {})
-                    gifs = outputs.get("364", {}).get("gifs", [])
+                    # 按动态发现的 save_id（兼容用户自定义工作流节点号）抓取视频输出，同时兼容 VHS_VideoCombine 的 gifs/videos 键
+                    out_node = outputs.get(save_node_id, {}) if save_node_id else {}
+                    gifs = out_node.get("gifs") or out_node.get("videos") or []
+                    if not gifs:
+                        for node_out in outputs.values():
+                            if isinstance(node_out, dict):
+                                gifs = node_out.get("gifs") or node_out.get("videos") or []
+                                if gifs:
+                                    break
                     # 反作弊锁 4B：拦截 0.0s 秒退或无 MP4 产物的假完成！
                     if st_info.get("status_str") == "error" or not gifs or not st_info.get("completed", True):
                         print(f"[X 渲染异常中断] {sid} 耗时仅 {elapsed}s 且未产出有效视频！底层状态: {st_info}")
