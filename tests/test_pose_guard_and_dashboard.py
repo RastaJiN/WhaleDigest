@@ -63,5 +63,29 @@ class TestPoseGuardAndPipeline(unittest.TestCase):
             self.assertIn("S01", rep["pose_errors"][0])
 
 
+
+from whale_dashboard import auto_start_dashboard, ensure_project_registered
+
+
+class TestAutoDashboard(unittest.TestCase):
+    def test_auto_start_dashboard_skips_temp_or_env(self):
+        with tempfile.TemporaryDirectory() as td:
+            ws = Path(td)
+            (ws / "剧本.md").write_text("# EP001\n", encoding="utf-8")
+            # 临时目录或设置 WHALE_NO_AUTO_DASHBOARD=1 时安全跳过弹窗
+            self.assertIsNone(auto_start_dashboard(str(ws), open_browser=False))
+
+    def test_ensure_project_registered_creates_short_drama_json(self):
+        with tempfile.TemporaryDirectory() as td:
+            ws = Path(td) / "demo_proj"
+            ws.mkdir()
+            (ws / "批量任务.json").write_text(
+                json.dumps({"aspect": "16:9", "project_mode": "standard_drama"}, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            ensure_project_registered(ws)
+            self.assertTrue((ws / "short-drama.json").exists())
+
+
 if __name__ == "__main__":
     unittest.main()

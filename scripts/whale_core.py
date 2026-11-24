@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-吞鲸宝典 v4.0 · 全剧集导演调度与提示词装配共享核心 (WhaleDigest Assembly Core v4.0)
+吞鲸宝典 v4.6.3 · 全剧集导演调度与提示词装配共享核心 (WhaleDigest Assembly Core v4.6.3)
 
 核心特性：
 1. R1~R12 全肯定无否定式语法（Positive-Only Grammar）：
@@ -214,7 +214,7 @@ OFFICIAL_CUT_PHRASES = (
     "the shot switches to",
 )
 
-# 吞鲸 v4.0 · 黄金情绪反应配方（1个明确情绪点名 + 2处当前景别可见物理泄露 + 1.5s内落定保持）
+# 吞鲸 v4.6.3 · 黄金情绪反应配方（1个明确情绪点名 + 2处当前景别可见物理泄露 + 1.5s内落定保持）
 EMOTION_MUSCLE_CUES = {
     # ── 12 大主动表演情绪底色 ──
     "anger_rage":       "simmering with furious rage; brows drawn sharply together with tense glabella and jaw muscles bulging as nostrils flare, settling into a lethal unblinking glare within 1.5 seconds",
@@ -665,7 +665,7 @@ def build_fullref_header(
     nudity=False,
 ):
     """
-    吞鲸 v4.0 权威头部装配：
+    吞鲸 v4.6.3 权威头部装配：
     - 100% 遵循 R1~R12 全肯定语法（零否定词）
     - 支持单人正反打/空镜槽位物理隔离描述
     - 支持特写/微距镜头头部自动瘦身裁剪（防特写被房间全景描述拉宽成中景）
@@ -1086,7 +1086,7 @@ def single_shot_prompt(shot, index, total_shots, dur, size_desc, cam_desc,
                        emotion="default", voiceover=False, hold_last_second=False,
                        tier="A_two_shot", has_audio_refs=False, aspect="9:16", nudity=False):
     """
-    吞鲸 v4.0 对外唯一装配接口：
+    吞鲸 v4.6.3 对外唯一装配接口：
     - 输出纯净正向送模提示词（不含 === NEGATIVE ===，杜绝正向反噬）
     - 100% 兼容 R1~R12 全肯定语法与吞鲸六段式结构锚点
     """

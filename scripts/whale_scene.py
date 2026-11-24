@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-吞鲸宝典 v4.0 · 全剧集视听导演调度与自动摄影拆镜引擎 (WhaleDigest Scene & Auto-DP Engine v4.0)
+吞鲸宝典 v4.6.3 · 全剧集视听导演调度与自动摄影拆镜引擎 (WhaleDigest Scene & Auto-DP Engine v4.6.3)
 
 核心特性：
 1. 全剧集弹性时长（60s ~ 360s 任意定）與自由文/肉节奏：
@@ -703,7 +703,7 @@ def build_scene(chain, total_sec, poses, recipes=None, decisions=None):
 
 def resolve_slot_refs(shot_size, pose_id, is_nude_state=True, asset_dir=""):
     """
-    吞鲸 4.0 空间图池单槽轮换法（Multi-View Pool, Single-View Per Shot）+ 单人镜槽位物理隔离：
+    吞鲸 v4.6.3 空间图池单槽轮换法（Multi-View Pool, Single-View Per Shot）+ 单人镜槽位物理隔离：
     1. 每一镜的 <Picture 3> (槽位 2) 永远只挂 1 张最匹配当前机位的空间底图（绝不多张空间图混挂打架，也绝不断开 <Picture 3> 锚点！）：
        - 墙边/立面/封堵戏 -> 优先选 `scene_wall.png`（若无则回退 `scene_main.png`）
        - 面部正反打/腰胯/微距特写 -> 优先选 `scene_close.png` 承托面近景图（解决切特写丢背景/假家具穿帮；若无则回退 `scene_main.png`）
@@ -813,7 +813,7 @@ def h3_frames(sec):
 
 def save_project_artifacts(out_dir, shots, actual_total, want_total, lines="",
                            idea="", scene="卧室", pose_names="", aspect="9:16", scene_id=None, script_path=None, pace_driver=None, pace_overrides=None, pace=None, actor=None, chain=None, review=None, wardrobe_mode=""):
-    """一键在项目目录落盘：分镜.md + 视频提示词.md + 批量任务.json（吞鲸 v4.0 规范，横竖屏双轨）
+    """一键在项目目录落盘：分镜.md + 视频提示词.md + 批量任务.json（吞鲸 v4.6.3 规范，横竖屏双轨）
     aspect: '9:16' 竖屏 / '16:9' 横屏 / '1:1' 方屏，决定景别/机位/运镜/分辨率整套构图语言。
     """
     import datetime
@@ -848,7 +848,7 @@ def save_project_artifacts(out_dir, shots, actual_total, want_total, lines="",
     total_frames_sum = sum(s.get("frames", h3_frames(s["dur"])) for s in shots)
 
     sb_lines = [
-        f"# 吞鲸工作室 v4.0 · 全剧集导演调度与 Auto-DP 分镜表 ([Track: Ref2V])",
+        f"# 吞鲸工作室 v4.6.3 · 全剧集导演调度与 Auto-DP 分镜表 ([Track: Ref2V])",
         f"- 目标总时长：{want_total}s | 实际闭合总时长：{actual_total}s | 总帧数：{total_frames_sum}帧 | 总镜数：{len(shots)} 镜 | 画幅：{orient_label} {res['width']}x{res['height']}",
         f"- 调度与姿势主链：{pose_names}",
         f"- 轨道模式：[Track: Ref2V] 全片纯血锚定 + 空间图池单槽轮换 + 单人正反打物理隔离 + {orient_label}构图语言",
@@ -858,7 +858,7 @@ def save_project_artifacts(out_dir, shots, actual_total, want_total, lines="",
     ]
 
     prompt_lines = [
-        f"# 吞鲸工作室 v4.0 · 逐镜 R1~R12 全肯定送模提示词",
+        f"# 吞鲸工作室 v4.6.3 · 逐镜 R1~R12 全肯定送模提示词",
         f"- 场景：{scene} | 总镜数：{len(shots)} 镜 | 总帧数：{total_frames_sum}帧 | 画幅：{orient_label}",
         "",
         "---",
@@ -1115,7 +1115,7 @@ def save_project_artifacts(out_dir, shots, actual_total, want_total, lines="",
 
     print(f"[✓] 已落盘分镜表: {sb_path}")
     print(f"[✓] 已落盘提示词: {pr_path}")
-    print(f"[✓] 已落盘吞鲸 v4.0 批量任务 JSON ({len(batch_shots)} 镜 / {total_frames_sum} 帧): {bj_path}")
+    print(f"[✓] 已落盘吞鲸 v4.6.3 批量任务 JSON ({len(batch_shots)} 镜 / {total_frames_sum} 帧): {bj_path}")
     return str(sb_path), pr_path, bj_path
 
 
@@ -1125,7 +1125,7 @@ def print_table(shots, actual_total, want_total, lines="", idea="", scene="卧�
     shots[:] = pacing.apply(shots, pace_driver, actor=actor, pace=pace, overrides=pace_overrides)
     line_map, actual_total = prepare_dialogue_shots(shots, lines, want_total)
     print("=" * 100)
-    print(f"🐳 吞鲸宝典 v4.0 · 全剧集 Auto-DP 拆镜表    目标 {want_total}s / 实际 {actual_total}s / 共 {len(shots)} 镜")
+    print(f"🐳 吞鲸宝典 v4.6.3 · 全剧集 Auto-DP 拆镜表    目标 {want_total}s / 实际 {actual_total}s / 共 {len(shots)} 镜")
     print("=" * 100)
     print(f"{'镜':<4}{'时间':<14}{'时长':<7}{'帧数':<6}{'景别':<8}{'Auto-DP运镜':<18}{'调度/姿势':<18}")
     print("-" * 100)
@@ -1198,7 +1198,7 @@ def print_table(shots, actual_total, want_total, lines="", idea="", scene="卧�
 
 
 def main():
-    ap = argparse.ArgumentParser(description="吞鲸 v4.0 全剧集视听导演调度与 Auto-DP 拆镜引擎")
+    ap = argparse.ArgumentParser(description="吞鲸 v4.6.3 全剧集视听导演调度与 Auto-DP 拆镜引擎")
     ap.add_argument("--chain", help="调度与姿势链，逗号分隔（支持 env_establish,blocking_2s,srs_male,srs_female,prop_insert 及 55 套体位）")
     ap.add_argument("--total", type=float, default=120.0, help="本集目标总时长秒（60~360s 任意弹性指定）")
     ap.add_argument("--lines", default="", help="本段台词")

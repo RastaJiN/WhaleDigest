@@ -79,6 +79,13 @@ def main():
     parser.add_argument("--mode", default="standard_drama", help="standard_drama / adult_drama")
     args = parser.parse_args()
     rep = check_workspace(args.workspace, args.mode)
+    try:
+        from whale_dashboard import auto_start_dashboard
+        url = auto_start_dashboard(args.workspace, open_browser=True)
+        if url:
+            rep["dashboard_url"] = url
+    except Exception:
+        pass
     print(json.dumps(rep, ensure_ascii=False, indent=2))
     sys.exit(0 if rep["ok"] else 1)
 

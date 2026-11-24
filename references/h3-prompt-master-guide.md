@@ -1,4 +1,4 @@
-# MiniMax H3 官方提示词规范 × 吞鲸实战融合手册 (WhaleDigest v4.6.2)
+# MiniMax H3 官方提示词规范 × 吞鲸实战融合手册 (WhaleDigest v4.6.3)
 
 > **官方真源锁定**：本手册直接融合 `MiniMax-AI/MiniMax-H3/.agents/skills/h3-prompt-writing`（锁定 commit `199b7d0e1fd95e7b3eafa8c15eca692534142427`），完整官方原件保存在 `references/h3-official/`（`SKILL.md`、`ref-en.txt`、`base-en.txt`）。
 > **核心原则**：任何大模型（Claude / GPT / Gemini / DeepSeek）写 H3 提示词时，**禁止凭感觉手写格式**——必须严格按本手册规则，优先通过统一编译器 `scripts/whale_h3_prompt.py` (`compile_h3_ref2va_prompt`) + 全集音色账本 (`VoiceRegistry` / `voice_bible.json`) 生成，再过 `whale_compiler.py` 与 `whale_gatekeeper.py` 强校验。
@@ -11,7 +11,7 @@
 |---|---|---|
 | **顶层六段与顺序** | 官方 `ref-en.txt` | 严格固定顺序且各仅一次：`subject_definitions` → `summary` → `retention_analysis` → `detailed_description` → `overall_soundscape` → `non_diegetic_music`。前面禁止任何前言/标题/备注，禁止未知顶层字段。 |
 | **保留强度枚举** | 官方 `ref-en.txt` §4 | 视觉素材用 `fully_preserved` / `partially_preserved` / `attribute_transfer` / `weak_reference`；音频素材用 `fully_copy` / `partially_copy` / `reference` / `weak_reference`。 |
-| **槽位编号与角色解耦** | 官方 `ref-en.txt` §2 + 吞鲸 v4.5.13 | `ref_images` 支持 **1–9 张**自由开关；**绝不写死 1=女 / 2=男 / 3=场景**。3 人同框、群像、单人反打、道具特写放第几槽，提示词就写 `<Picture N>`，并定义为 `<Subject M>`。`<Subject N>` 是视觉主体，`(Sx)` 是全局说话人 ID，**二者不必相等**（例如 `<Subject 3> (S1)` 完全合法）。 |
+| **槽位编号与角色解耦** | 官方 `ref-en.txt` §2 + 吞鲸 v4.6.3 | `ref_images` 支持 **1–9 张**自由开关；**绝不写死 1=女 / 2=男 / 3=场景**。3 人同框、群像、单人反打、道具特写放第几槽，提示词就写 `<Picture N>`，并定义为 `<Subject M>`。`<Subject N>` 是视觉主体，`(Sx)` 是全局说话人 ID，**二者不必相等**（例如 `<Subject 3> (S1)` 完全合法）。 |
 | **CFG=1.0 正向全肯定** | 吞鲸实片经验 | `Node 328 = ConditioningZeroOut` 导致负向清零，因此正向提示词**严禁出现否定词配衣物/字幕词根**（`no garment / no shirt / no underwear / no subtitles / Do not generate subtitles`），必须 100% 写正面可见物理状态。 |
 | **语言分工** | 官方 `ref-en.txt` + 吞鲸 | 六段正文全英文；**只有 `<d>[Chinese]逐字台词</d>` 内与画内真实招牌文字保留中文**。 |
 

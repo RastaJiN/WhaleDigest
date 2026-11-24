@@ -91,6 +91,66 @@ def ensure_project_registered(workspace: Path) -> None:
             pass
 
 
+
+
+def _is_temp_test_dir(ws: Path) -> bool:
+    import tempfile
+    parts = [p.lower() for p in ws.resolve().parts]
+    tmp_root = Path(tempfile.gettempdir()).resolve()
+    try:
+        ws.resolve().relative_to(tmp_root)
+        return True
+    except ValueError:
+        pass
+    return any(x in parts for x in ("temp", "tmp", "__pycache__"))
+
+
+def auto_start_dashboard(project_dir, open_browser: bool = True):
+    """
+    当检测到项目已存在 `剧本.md` 或 `剧集/*/剧本.md` 时自动拉起本地工作台。
+    - 跳过条件：环境变量 WHALE_NO_AUTO_DASHBOARD=1 或位于系统临时目录的单元测试项目
+    - 返回启动后的 URL（如已运行则返回复用 URL；未触发返回 None）
+    """
+    import os
+    if os.environ.get("WHALE_NO_AUTO_DASHBOARD") == "1":
+        return None
+    ws = Path(project_dir).expanduser().resolve()
+    if not ws.exists() or _is_temp_test_dir(ws):
+        return None
+
+    has_script = (ws / "剧本.md").is_file() or any((ws / "剧集").glob("*/剧本.md"))
+    if not has_script:
+        return None
+
+    ensure_project_registered(ws)
+
+    # 先查询当前工作台是否已在运行
+    st = subprocess.run(
+        [sys.executable, str(DASHBOARD_SERVER), "--workspace", str(ws), "--status"],
+        capture_output=True, text=True, encoding="utf-8",
+    )
+    if st.returncode == 0 and '"running": true' in st.stdout:
+        try:
+            info = json.loads(st.stdout)
+            url = info.get("url")
+            if url:
+                print(f"[工作台] 检测到剧本已就绪，复用在线工作台: {url}")
+                return url
+        except Exception:
+            pass
+
+    cmd = [sys.executable, str(DASHBOARD_SERVER), "--workspace", str(ws), "--port", "0", "--detach"]
+    if open_browser:
+        cmd.append("--open")
+    r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8")
+    for line in r.stdout.splitlines():
+        if line.startswith("Dashboard:"):
+            url = line.split("Dashboard:", 1)[1].strip()
+            print(f"[工作台] 检测到剧本已就绪，已自动启动本地工作台: {url}")
+            return url
+    return None
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="WhaleDigest 吞鲸宝典工作台统一启动入口")
     parser.add_argument("project_dir_pos", nargs="?", help="剧集/项目根目录")

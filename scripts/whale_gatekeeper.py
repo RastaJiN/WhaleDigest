@@ -158,10 +158,20 @@ def audit_step_2(project_dir):
         # One reviewed action/shot is sufficient evidence in this pipeline.
         # Don't manufacture a second pose to satisfy the legacy heuristic.
         if planned:
+            try:
+                from whale_dashboard import auto_start_dashboard
+                auto_start_dashboard(project_dir, open_browser=True)
+            except Exception:
+                pass
             return True, '剧本与已确认的可见镜头一致；单镜无需补动作 PASS'
         return False, "剧本门禁未通过：剧本必须包含至少 2 处明确的阶段性动作/体位推进描述（支持自然中文如“站立按墙/口交/观音坐莲/正面交合”或吞鲸标准 ID）！"
         
     detected_desc = sorted(ids_in_script) if ids_in_script else sorted(set(ZH_ACTION_KEYWORDS))
+    try:
+        from whale_dashboard import auto_start_dashboard
+        auto_start_dashboard(project_dir, open_browser=True)
+    except Exception:
+        pass
     return True, f"刀锋剧本结构、活人感台词与动作演进 ({detected_desc[:6]}) 验收 PASS！允许进入分镜设计。"
 
 def audit_step_3(project_dir):

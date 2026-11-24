@@ -142,6 +142,11 @@ def main():
     print(f"   剧本: {script_file}")
     print(f"   画幅: {args.aspect} | 目标时长: {args.total}s | 场景: {args.scene}")
     os.makedirs(project_dir, exist_ok=True)
+    try:
+        from whale_dashboard import auto_start_dashboard
+        auto_start_dashboard(project_dir, open_browser=True)
+    except Exception:
+        pass
 
     # ── 1. 读取剧本，自动提取文戏/肉戏意图与体位 ──
     step_banner(1, "剧本读取 + 自动意图识别")

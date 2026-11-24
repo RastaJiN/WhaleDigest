@@ -1,8 +1,8 @@
 """
-吞鲸宝典 v4.0 · ComfyUI 跨机渲染提交与批量任务打包器
+吞鲸宝典 v4.6.3 · ComfyUI 跨机渲染提交与批量任务打包器
 功能：
 1. 检查项目目录下前序 5 大门禁是否全部 PASS（未全绿严禁导出渲染！）
-2. 自动核验吞鲸 v4.0 `批量任务.json` (schema: h3-drama-task, 9图3音动态槽位 + LoRA 分级 + 空间图池单槽轮换 + 全集总帧闭合)
+2. 自动核验吞鲸 v4.6.3 `批量任务.json` (schema: h3-drama-task, 9图3音动态槽位 + LoRA 分级 + 空间图池单槽轮换 + 全集总帧闭合)
 3. 自动检测本机 ComfyUI 服务 (http://127.0.0.1:8188) 并输出一键启动指令
 """
 
@@ -110,13 +110,13 @@ def verify_batch_json(project_dir):
 
 
 def main():
-    ap = argparse.ArgumentParser(description="吞鲸 v4.0 ComfyUI 渲染提交与批量任务核验器")
+    ap = argparse.ArgumentParser(description="吞鲸 v4.6.3 ComfyUI 渲染提交与批量任务核验器")
     ap.add_argument("project_dir", nargs="?", default="", help="项目目录路径（可选）")
     ap.add_argument('--offline', action='store_true', help='只验门禁和任务包，不探测 ComfyUI 服务')
     args = ap.parse_args()
 
     print("=" * 65)
-    print("🐳 吞鲸 v4.0 通用渲染提交器 · 纯血 Ref2V 批量任务核验中心")
+    print("🐳 吞鲸 v4.6.3 通用渲染提交器 · 纯血 Ref2V 批量任务核验中心")
     print("=" * 65)
 
     if args.project_dir:
