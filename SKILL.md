@@ -1,7 +1,7 @@
 ---
 name: tunjing-baodian
 description: "Use when producing or auditing short dramas with WhaleDigest."
-version: 4.6.0
+version: 4.6.2
 author: 吞鲸工作室 (Swallowing Whale Studio)
 license: MIT
 metadata:
@@ -9,7 +9,7 @@ metadata:
     tags: [tunjing, baodian, drama, pure-ref2v, gatekeeper]
 ---
 
-# 🐳 WhaleDigest · 全剧集视听导演调度生产引擎 (WhaleDigest v4.6.0)
+# 🐳 WhaleDigest · 全剧集视听导演调度生产引擎 (WhaleDigest v4.6.2)
 
 > 工程验收说明：当前代码接口与验收边界见 [engineering-contract.md](references/engineering-contract.md)。六字段结构、独立 Camera/SPEECH、显式画幅 `aspect`、逐镜物理资产存在性及实际输入证据均由代码硬检；`axis` 仅作兼容警告。纯对白、单人镜、多人（3+）群像镜与空镜均按 1–9 自由开关槽位实际内容验收。固定随包 HMAC 密钥用于完整性校验，不能阻止拥有本机写权限的人修改代码。离线单测与自检覆盖软件链路，不替代真实模型渲染、成片画面质量与实机体感验收。
 
@@ -92,7 +92,7 @@ metadata:
 | 脚本 | 核心职责与调用方式 |
 |---|---|
 | `whale_h3_prompt.py` | **官方 H3 六段全场景提示词编译器（空镜/画内/画外音/内心独白/旁白）+ `VoiceRegistry` 全集人物音色账本** |
-| `whale_dashboard.py` / `sd_core/dashboard_server.py` | **本地可视化创作与审片工作台**：① `python scripts/sd_core/dashboard_server.py --workspace <项目目录> --port 0 --detach --open`（1:1 复刻 `drama-skills` 完整多视图界面、路由与交互逻辑，并通过 `assets/dashboard/tokens.css` 覆盖为宝典深色配色；支持按 `project_mode` 智能隔离：`adult_drama`/`erotic`/`nsfw` 才在右侧 Inspector 加载 94 条肉戏体位选择器，普通正剧 `standard_drama` 仅显示选人/参考图绑定，不泄露成人控件；若项目缺 `short-drama/state.json`，需先用 `project_tool.py init` 补齐索引，否则工作台会提示未发现可打开项目）；② `python scripts/whale_dashboard.py <项目目录> --port 0 --detach --open`（宝典防错专版：含总览与门禁、分镜与选人/体位工作台、在线编辑、`00_资产库`、`音色账本`、`制作成果/` 媒体审片）。**注意**：① `sd_core/dashboard_server.py` 复用自独立目录时，其 `STATIC_ROOT`、`project_tool.py` 与 `creator_views.py` 路径必须指向 `tunjing-baodian` 自身目录，否则会报 404 或 `FileNotFoundError`；② 覆盖 `tokens.css` 深色主题时，只针对 `:root[data-theme="dark"]` 覆盖，严禁把 `:root[data-theme="light"]` 也用 `!important` 锁死，否则白天/夜晚切换按钮会失效，且深色下需保证按钮/步骤圆圈为高对比度（如亮蓝底白字）；③ 启动前需先确认项目目录真实存在，且用 `--port 0 --detach` 避免端口冲突或终端关闭导致服务退出 |
+| `whale_dashboard.py` / `sd_core/dashboard_server.py` | **本地可视化创作与审片工作台（唯一统一入口）**：`python scripts/whale_dashboard.py <项目目录> --port 0 --detach --open`（等价于 `sd_core/dashboard_server.py --workspace <项目目录> --port 0 --detach --open`）。启动前自动检测并调用 `sd_core/project_tool.py init` 补齐 `short-drama.json` / `short-drama/state.json` 索引，拉起 1:1 复刻高级多视图界面 + 宝典双主题配色；支持按 `project_mode` 智能隔离：`adult_drama`/`erotic`/`nsfw` 才在 `设定 ➔ 体位 ➔ 分镜` 与右侧 Inspector 解锁 94 条肉戏体位选择器，普通正剧 `standard_drama` 自动隐藏体位控件仅保留选人/参考图绑定 |
 | `whale_core.py` | **装配与场地适配共享内核** |
 | `whale_scene.py` | **整段床戏自动拆镜主引擎** |
 | `whale_storyboard.py` | **单镜多节拍精修器** |

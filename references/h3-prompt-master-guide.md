@@ -1,4 +1,4 @@
-# MiniMax H3 官方提示词规范 × 吞鲸实战融合手册 (WhaleDigest v4.6.0)
+# MiniMax H3 官方提示词规范 × 吞鲸实战融合手册 (WhaleDigest v4.6.2)
 
 > **官方真源锁定**：本手册直接融合 `MiniMax-AI/MiniMax-H3/.agents/skills/h3-prompt-writing`（锁定 commit `199b7d0e1fd95e7b3eafa8c15eca692534142427`），完整官方原件保存在 `references/h3-official/`（`SKILL.md`、`ref-en.txt`、`base-en.txt`）。
 > **核心原则**：任何大模型（Claude / GPT / Gemini / DeepSeek）写 H3 提示词时，**禁止凭感觉手写格式**——必须严格按本手册规则，优先通过统一编译器 `scripts/whale_h3_prompt.py` (`compile_h3_ref2va_prompt`) + 全集音色账本 (`VoiceRegistry` / `voice_bible.json`) 生成，再过 `whale_compiler.py` 与 `whale_gatekeeper.py` 强校验。

@@ -400,7 +400,7 @@ def initialize_project(
     for relative in PROJECT_DIRS:
         (root / relative).mkdir(parents=True, exist_ok=True)
 
-    core = suite_root or Path(__file__).resolve().parents[1]
+    core = suite_root or Path(__file__).resolve().parents[2]
     project = json.loads(
         (core / "assets/project-template/short-drama.json").read_text(encoding="utf-8")
     )
