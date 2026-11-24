@@ -257,7 +257,7 @@ class OfficialH3PromptV460Test(unittest.TestCase):
             self.assertTrue(any("闭嘴锁" in v for v in rep["violations"]), rep["violations"])
 
     def test_014b_non_bed_scene_blocks_mattress_soundscape_leak(self):
-        # 014B rule from 深渊之契 SOP: industrial/desk/table scenes must not leak mattress/bedsheet/pillow cues
+        # 014B scene-material rule: industrial/desk/table scenes must not leak mattress/bedsheet/pillow cues
         leaked_prompt = (
             "subject_definitions:\n"
             "<Subject 1> is the woman from <Picture 1>.\n"

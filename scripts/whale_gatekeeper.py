@@ -8,6 +8,7 @@ import os
 import sys
 import json
 import re
+from whale_pose_guard import validate_pose_entry
 from whale_task_source import (load_task_source, source_record, refresh_status,
                                  require_source_audit, TaskSourceError, validate_batch_metadata,
                                  stage_record, gate_evidence, validate_asset_image,

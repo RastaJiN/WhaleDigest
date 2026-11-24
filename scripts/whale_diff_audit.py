@@ -293,7 +293,7 @@ def audit_project(project_dir):
     is_intimate_project = bool(intimate_poses) or any(
         float(s.get("lora_mystic_strength") or 0.0) > 0.0 for s in shots
     )
-    # ── 8. 场景材质与声场词连带排查（吸取《深渊之契》014B 教训：工业/办公/桌面/椅子/走廊场景声场禁止残留床垫词诱发变床）──
+    # ── 8. 场景材质与声场词连带排查（工业/办公/桌面/椅子/走廊场景声场禁止残留床垫词诱发变床）──
     bed_leak_rx = re.compile(r"\b(mattress|bedsheets?|pillow|bedframe|bed\s+creak)\b", re.I)
     for idx, s in enumerate(shots, 1):
         sid = s.get("shot_id") or s.get("id") or idx

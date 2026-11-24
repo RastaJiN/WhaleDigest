@@ -10,7 +10,7 @@
 ## 安装
 
 ```bash
-git clone https://github.com/RastaJiN/tunjing-baodian.git ~/.hermes/skills/tunjing-baodian
+git clone https://github.com/RastaJiN/WhaleDigest.git ~/.hermes/skills/tunjing-baodian
 ```
 
 ---

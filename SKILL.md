@@ -39,7 +39,7 @@ metadata:
 4. **状态机锁死与两大反失控铁律**：
    - **铁律 A（严禁自编野鸡脚本、严禁私建工作流、严禁离线/提交脱节）**：强制使用宝典内置的 `whale_scene.py`、`whale_gatekeeper.py` 与 `whale_runner.py`。**严禁 Agent 在项目目录里临时手写 `make_*.py`、`submit_*.py`、`run_first.py`、`verify_*.py`、`patch_*.py` 等一次性拼凑脚本绕过宝典真源与门禁，也严禁无视用户指定的工作流私自新建 ComfyUI 工作流！** 用户指定工作流时必须用 `whale_runner.py --workflow <路径>` 或在 `.whale_project.json` 写入 `"workflow"` 字段原地回填。
    - **铁律 B（物理点火锁 + 五维签字单呈报，严禁擅自开跑）**：通过 Gate 5 后，系统自动生成《监制五维核对签字单.md》（逐镜列出 `<Picture 1..N>` 实名文件、体位 ID、景别运镜、🔥交合微距特写高亮、🗣️台词核对与 16 位 HMAC 完整性令牌）。**鲸鲸必须先向监制呈报该对账单并停机等待；在监制未明确下令“开始渲染”前，严禁调用 ComfyUI 提交任何渲染任务！**同时，**“跳过测试/跳过样镜”只跳过样镜环节，绝不跳过参考图与提示词门禁**；**后期合成项（补画、合成镜头、配乐、发布口径签审）与正式首镜开渲条件解耦**，不得混进开渲前置条件。
-   - **铁律 C（Git 提交保密，监制硬性要求）**：对吞鲸宝典主仓库（`https://github.com/RastaJiN/WhaleDigest.git`，本地 `C:/Users/Rasta/AppData/Local/hermes/skills/tunjing-baodian`）的任何 `git commit`，**commit message 一律只写 `修复少量BUG`，严禁在提交信息里暴露本次更新的具体内容**；提交前清理 `__pycache__/` 并隔离纯净导出复验（Windows 上用 Python `tarfile.extractall(..., filter="data")` 解包 `git archive` 以保留 UTF-8 中文文件名，避免 `tar.exe` 转义丢档）。
+   - **铁律 C（Git 提交保密，监制硬性要求）**：对吞鲸宝典主仓库（`https://github.com/RastaJiN/WhaleDigest.git`，的任何 `git commit`，**commit message 一律只写 `修复少量BUG`，严禁在提交信息里暴露本次更新的具体内容**；提交前清理 `__pycache__/` 并隔离纯净导出复验（Windows 上用 Python `tarfile.extractall(..., filter="data")` 解包 `git archive` 以保留 UTF-8 中文文件名，避免 `tar.exe` 转义丢档）。
    - **铁律 D（1–9 自由开关槽位 + 接手旧任务三项必检硬闸）**：
      - H3 的 9 个参考图槽位（`<Picture 1..9>`）可自由开关，**绝不写死“1=女 / 2=男 / 3=场景”或限制只能放 2 个人**！3 人同框、群像、单人反打、道具特写均按实际出镜放进槽位，放第几槽提示词就写 `<Picture N>` / `<Subject N>`（`whale_core.py` 原生支持 `shot["slots"]` 动态多槽位装配），未使用槽位由 `whale_runner.py` 自动断开。
      - **接手旧任务 / 新开工前必须通过三大硬闸（缺一直接 FAIL 拦死，绝不假装通过）**：① **画幅 `aspect`** 必须显式为 `16:9` / `9:16` / `1:1`；② **`00_资产/` 非空且逐镜 `ref_images` 物理存在可读**（Gate 1 + Gate 4 + Gate 5 + Runner 无条件验图）；③ **用户指定工作流 JSON 原地回填**（按 `class_type` 自动发现节点，绝不私自另建工作流）；④ **分镜运镜与景别活性硬闸**（≥5 镜严禁单一机位、单一景别或静态机位 >60%）。
@@ -92,6 +92,7 @@ metadata:
 | 脚本 | 核心职责与调用方式 |
 |---|---|
 | `whale_h3_prompt.py` | **官方 H3 六段全场景提示词编译器（空镜/画内/画外音/内心独白/旁白）+ `VoiceRegistry` 全集人物音色账本** |
+| `whale_dashboard.py` / `sd_core/dashboard_server.py` | **本地可视化创作与审片工作台**：① `python scripts/sd_core/dashboard_server.py --workspace <项目目录> --port 0 --detach --open`（1:1 复刻 `drama-skills` 完整多视图界面、路由与交互逻辑，并通过 `assets/dashboard/tokens.css` 覆盖为宝典深色配色；支持按 `project_mode` 智能隔离：`adult_drama`/`erotic`/`nsfw` 才在右侧 Inspector 加载 94 条肉戏体位选择器，普通正剧 `standard_drama` 仅显示选人/参考图绑定，不泄露成人控件；若项目缺 `short-drama/state.json`，需先用 `project_tool.py init` 补齐索引，否则工作台会提示未发现可打开项目）；② `python scripts/whale_dashboard.py <项目目录> --port 0 --detach --open`（宝典防错专版：含总览与门禁、分镜与选人/体位工作台、在线编辑、`00_资产库`、`音色账本`、`制作成果/` 媒体审片）。**注意**：① `sd_core/dashboard_server.py` 复用自独立目录时，其 `STATIC_ROOT`、`project_tool.py` 与 `creator_views.py` 路径必须指向 `tunjing-baodian` 自身目录，否则会报 404 或 `FileNotFoundError`；② 覆盖 `tokens.css` 深色主题时，只针对 `:root[data-theme="dark"]` 覆盖，严禁把 `:root[data-theme="light"]` 也用 `!important` 锁死，否则白天/夜晚切换按钮会失效，且深色下需保证按钮/步骤圆圈为高对比度（如亮蓝底白字）；③ 启动前需先确认项目目录真实存在，且用 `--port 0 --detach` 避免端口冲突或终端关闭导致服务退出 |
 | `whale_core.py` | **装配与场地适配共享内核** |
 | `whale_scene.py` | **整段床戏自动拆镜主引擎** |
 | `whale_storyboard.py` | **单镜多节拍精修器** |
@@ -99,7 +100,35 @@ metadata:
 | `whale_pipeline.py` | **端到端自动流水线主控编排器** |
 | `whale_pose_select.py` | **场景自动识别体位引擎** |
 | `whale_resolver.py` | **自然语言动作速查器** |
-| `whale_gatekeeper.py` | **六大刚性步进门禁状态机** |
+| `whale_pose_guard.py` | **体位真源与翻车体位安全转换器（`adult_drama` 强制在 `视觉设定 ➔ 体位 ➔ 分镜` 阶段锁定 94 条真源，拦截高危体位并给出可落地替换；`standard_drama` 禁止挂载肉戏体位）** |
+| `whale_gatekeeper.py` | **六大刚性步进门禁状态机（已接入 `whale_pose_guard.py`）** |
 | `whale_compiler.py` | **六段式提示词体检器** |
 | `whale_runner.py` | **ComfyUI 全自动后台批跑与微创重摇点火器** |
 | `whale_mastering.py` | **母带音画精修与声学特效缝合器** |
+
+---
+
+## 🏗️ 宝典 v5 工业化内核（对标 drama-skills 9 阶段底座 + 多模型方言 + 成人剧插件）
+
+1. **阶段解耦与状态机（正剧/成人剧通用底座）**：
+   - 严格遵循 `剧本.md` ➔ `视觉设定.md`（成人剧在此步后插入 **体位真源选择**，正剧自动静默隐藏）➔ `图片提示词.md` ➔ `分镜.md`（`SCENE_SHOT_LADDER` + `CLIP_BOUNDARY_LEDGER`）➔ `视频提示词.md` ➔ 生产渲染。
+   - **工作台只读写标准 Markdown**：使用 `scripts/sd_core/dashboard_server.py` 启动本地创作台（`--workspace <项目目录> --port 0 --detach --open`）；`批量任务.json` 退居幕后作为 ComfyUI 自动编译产物，不在工作台前端暴露配置。
+   - **统一门禁核验**：每步完稿必须运行 `python scripts/whale_pipeline_check.py "<项目目录>" --mode <standard_drama|adult_drama>`，触发 1,740 行 `creator_markdown_check.py` 文本闭环校验（来源场景 ID、4 字以上台词逐字核对、连续性锁原样透传、跨镜边界）+ 体位真源拦截。
+   - **Dashboard 1:1 复刻与主题/路由注入 Pitfalls**：
+     1. 从其他 skill 复刻 `dashboard_server.py` / `creator_views.py` / `project_tool.py` 到 `scripts/sd_core/` 时，**必须同步重写所有硬编码路径**（`STATIC_ROOT`、`installed_script = Path(__file__).with_name("project_tool.py")`、`creator_views.py`）指向当前 skill 自身目录；仅靠修改静态目录或 `--stop` 后直接启动旧 `.short-drama/dashboard.json` 会复用残留状态或报 `FileNotFoundError` / `404`。
+     2. 修改 `dashboard_server.py` 路由处理器时，使用原版 `DashboardHandler` 签名（`query` 字典、`self.server.store.workspace`、`self._json(status, payload)`、`do_POST`），**禁止混入 `self._send_json`、`self.server.workspace` 或 `self._one(query, key, default=...)`**（`_one` 无 `default` 参数，会触发 HTTP 500 导致前端静默降级）。
+     3. 覆盖 `assets/dashboard/tokens.css` 深色主题时，**仅作用域于 `:root[data-theme="dark"]`**，严禁把 `:root[data-theme="light"]` 也用 `!important` 锁死（否则浅/深色切换失效），并对按钮与数字徽章设定高对比度色值；清理隐私占位词时同步检查导出模板与工作流 JSON（如 `references/whale_ui.json`）。
+     4. 向 `assets/dashboard/app.js` 注入自定义阶段标签（如成人剧 `体位`）或扩展 Inspector 时，**必须接入原生 `boot()` + `renderTop()` `VIEWS` + `render()` `switch(route.view)` + `stageMeta()`/`stageState()` 路由体系**，而非用 `MutationObserver` 外挂独立按钮；同时遵守工作台 CSP (`style-src 'self'`)——自定义样式必须写入外联 `assets/dashboard/styles.css` 并给 `index.html` 的静态资源 URL 加版本号防缓存（禁止动态注入 `<style>` 或 `style="..."` 否则会被拦截退化成单列，且内联 `onclick` 会在 IIFE 作用域内失效，须统一使用 `addEventListener` / 事件委托）；切换到非分镜页（如 `poses`）时显式移除 `body.with-inspector` 并隐藏 `#inspector` 防窄列挤压；Inspector 扩展区必须插在 `host.innerHTML = ...` 赋值之后（`host.hidden = false;` 旁），并使用原版 `api()` 与 `S.apiBase` 携带会话 Cookie/Token，防止被重绘清空或触发 401。
+     5. 在 `体位` 规划页提供搜索筛选、按顺序列选卡片、**清空体位**按钮（并在点击新卡片时清除旧状态提示语防误导）、保存落盘（`剧集/<EP>/体位规划.json`）与复制指令；若要新增自定义 API（如 `/api/whale/episode_poses`），必须核验它同时落入 `do_GET` 与 `do_POST`（含 `Content-Length` 读取与目录穿越校验）且切忌误插在 `do_GET` 内。
+     6. 接手自由格式旧项目打开创作台前，先检查 `short-drama.json` 与 `剧集/<EP>/` 标准二级标题（`## EPxxx-SCxxx`、`## SHOT-...`、`## MOTION-...`），缺索引时先用 `project_tool.py init` 建档；解析警告属于真实格式门禁提示，需先结构化同步文档再依赖结构视图。
+
+2. **多目标视频模型方言切换（`references/dialects/`）**：
+   - 根据项目锁定的目标模型在 `视频提示词.md` 阶段自动切换提示词方言（剧本/分镜保持模型无关）：
+     - **MiniMax H3**：走宝典 `whale_h3_prompt.py` Ref2VA 六段式 + `voice_bible.json`（参见 `references/dialects/minimax-h3.md`）
+     - **Seedance 2.0 / 2.5**：参见 `references/dialects/seedance-2.0.md`、`references/dialects/seedance-2.5.md`
+     - **Wan 3.0**：参见 `references/dialects/wan-3.0.md`
+     - **能力轴档案**：`references/dialects/target-model-profile.md`（原生时长、参考互斥、同轨声音与正文语言）
+
+3. **成人剧专属体位真源与翻车体位安全转换（仅 `adult_drama` 启用，正剧自动静默隐藏）**：
+   - **事前锁定**：`adult_drama` 模式下，在 `视觉设定 ➔ 体位 ➔ 分镜` 阶段强制从 `references/whale_poses_matrix.json` 94 条真源选取可落地体位与 `framingZh` 机位景别锁，严禁模型自造悬空/高危穿模动作；`standard_drama` 下工作台与门禁彻底静默隐藏成人项并禁止挂载体位。
+   - **事后转换（擦屁股）**：遇旧剧本或易翻车体位，必须调用 `scripts/whale_pose_guard.py` 按安全转换表降级（如 `standing_carry` → `missionary`、`standing_fuck` → `doggy`、`69_standing` → `sixty_nine`、`acrobatic` → `cowgirl`、`reverse_standing` → `reverse_cowgirl`），并把 `validate_pose_entry` 纳入 `whale_gatekeeper.py` 与 `whale_pipeline_check.py` 硬拦截。

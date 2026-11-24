@@ -15,3 +15,6 @@ __pycache__/
 outputs/
 renders/
 media/
+.short-drama/
+.whale_dashboard.json
+*.log
