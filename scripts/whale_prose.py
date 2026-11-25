@@ -135,14 +135,16 @@ def dialogue_on(line: str, names=()) -> list[dict[str, Any]]:
         turns.append(dict(speaker=name, cue=cue, text=tag[1]))
     if turns: return turns
     # Untagged but clearly delimited dialogue (bold cue or quoted sentence).
-    plain = re.sub(r'^\s*(?:[-*]\s+)?(?:' + SHOT.pattern + r'\s*[:：])?\s*', '', line, flags=re.I)
-    m = re.match(r'(\*\*|__)?(' + _NAME + r')(?:[（(]([^）)]*)[）)])?(?:\*\*|__)?\s*[:：](?:\*\*|__)?\s*(.+)$',plain)
+    plain = re.sub(r'^\s*(?:[-*]\s+)?(?:\[(?:VO|OS)\]\s*)?(?:' + SHOT.pattern + r'\s*[:：])?\s*', '', line, flags=re.I)
+    m = re.match(r'(\*\*|__)?(' + _NAME + r')(?:\s+(VO|OS))?(?:[（(]([^）)]*)[）)])?(?:\*\*|__)?\s*[:：](?:\*\*|__)?\s*(.+)$',plain)
     if m:
-        words = m[4]; name = _SAID.sub('',m[2])
+        words = m[5]; name = _SAID.sub('',m[2]); cue = (m[4] or m[3] or '').strip()
         close = _QUOTE_PAIRS.get(words[0]); quoted = close is not None and close in words[1:]
-        if quoted or m[1] or name in names or _GENERIC.fullmatch(name) or _SAID.search(m[2]):
+        # 兼容 standard_drama 无引号标准对白：行首「姓名（可选表演）：正文」，排除体位/分镜/舞台标签（如「女上位：...」「单人动作：...」）
+        _NON_SPEAKER = {'女上位', '男上位', '后入', '侧入', '传教士', '观音坐莲', '骑乘', '站立', '画面', '镜头', '场景', '阶段', '备注', '说明', '动作', '提示', '单人动作', '双人动作'}
+        if quoted or m[1] or m[3] or m[4] or name in names or _GENERIC.fullmatch(name) or _SAID.search(m[2]) or (re.match(r'^[\u4e00-\u9fff]{1,4}$', name) and name not in _NON_SPEAKER):
             if quoted and close is not None: words = words[1:words.index(close,1)]
-            return [dict(speaker=name, cue=m[3] or '', text=words)]
+            return [dict(speaker=name, cue=cue, text=words)]
     return []
 
 
@@ -211,16 +213,18 @@ def screenplay(text, aliases=None) -> list[dict[str, Any]]:
     for _ in range(len(casts)+1):
         before=len(known)
         for sid,names in casts.items():
-            if len(names)>2: raise ValueError(f'{sid}：双人参考槽不能容纳 {len(names)} 个说话人，请分场')
+            # 群像/正剧单场允许 >2 个说话人，不硬锁抛出双人槽异常；仅在 <=2 人时做互斥推断
+            if len(names) > 2:
+                continue
             missing=names-known.keys(); used={known[n] for n in names-missing}
             if len(missing)==1 and len(used)==1:
                 bind(next(iter(missing)),next(iter({'S1','S2'}-used)))
         if len(known)==before: break
     for sid,names in casts.items():
-        if names-known.keys() or len({known[n] for n in names})!=len(names):
+        if len(names) <= 2 and (names-known.keys() or len({known[n] for n in names})!=len(names)):
             raise ValueError(f'{sid}：请提供项目 角色映射.json（姓名到 S1/S2），不能按发言顺序猜测：{sorted(names)}')
     for row in rows:
-        row['cast']={known[n]:n for n in sorted(casts[row['scene']])}
+        row['cast']={known[n]:n for n in sorted(casts[row['scene']]) if n in known}
         for t in row['turns']:
             k_name = slot(t['speaker']) or t['speaker']
             t['actor'] = known.get(k_name, 'S1')

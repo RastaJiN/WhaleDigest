@@ -422,13 +422,13 @@ def allocate_exact_h3_frames(shots, want_total_sec):
         if "required_sec" not in s or s["required_sec"] is None:
             pid = s.get("pose", "")
             sz = s.get("size", "")
-            # 画面动作可见时长基准：短标点/插入镜短，主力交合/长台词长
+            # 画面动作可见时长基准：插入/特写至少给足 2.3s~2.5s 可读窗口，避免出现 1.62s 碎镜
             if pid in ("cut_insert", "prop_insert"):
-                base = 1.6
+                base = 2.5
             elif s.get("type") == "transition":
                 base = 3.5
             elif sz in ("macro",):
-                base = 2.3
+                base = 2.5
             elif sz in ("face", "cu") or pid in ("srs_male", "srs_female"):
                 base = 3.0
             else:

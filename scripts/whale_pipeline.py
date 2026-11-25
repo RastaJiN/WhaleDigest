@@ -10,7 +10,7 @@
 全程不询问用户，只有无法自动推断的关键参数（题材/人选/资产）才停下。
 
 模型加载宝典后，唯一需要做的是：
-    python scripts/whale_pipeline.py <剧本.md路径> [--aspect 9:16|16:9] [--total 240] [--scene 酒店客房]
+    python scripts/whale_pipeline.py <剧本.md路径> [--aspect 9:16|16:9] [--total 240] [--scene 主场景]
 
 其余全部由本编排器自动完成，用户只验收最终产物。
 """
@@ -72,7 +72,7 @@ def main():
     ap.add_argument("--aspect", default="", help="画幅 9:16/16:9/1:1（必须明确确认！若未传且项目未声明 aspect 则直接拦截，严禁静默套用 9:16）")
     ap.add_argument("--total", type=float, default=240.0, help="全集目标时长秒")
     ap.add_argument("--scene-id", help="采用剧本中的当前场次 ID")
-    ap.add_argument("--scene", default="酒店客房", help="主场景名")
+    ap.add_argument("--scene", default="主场景", help="主场景名")
     ap.add_argument("--lines", default="", help="台词（可选，格式 '镜号:女子A:台词' 竖线分隔）")
     ap.add_argument("--idea", default="", help="剧情核心张力描述")
     ap.add_argument("--wardrobe-mode", default="", choices=["", "nude_all", "dressed_all"], help="可选服装状态显式覆盖：nude_all / dressed_all")
@@ -112,7 +112,17 @@ def main():
         script_file = os.path.join(project_dir, "剧本.md")
     elif os.path.isfile(args.script):
         script_file = os.path.abspath(args.script)
-        project_dir = os.path.dirname(script_file)
+        # 若传入剧集子目录（如 .../剧集/EP001/剧本.md），向上锚定到项目根目录，避免嵌套建档与多开工作台
+        _raw_dir = os.path.dirname(script_file)
+        _parent = os.path.dirname(_raw_dir)
+        if os.path.basename(_parent) == "剧集":
+            _cand_root = os.path.dirname(_parent)
+            if os.path.exists(os.path.join(_cand_root, "short-drama.json")) or os.path.isdir(os.path.join(_cand_root, "剧集")):
+                project_dir = _cand_root
+            else:
+                project_dir = _raw_dir
+        else:
+            project_dir = _raw_dir
     else:
         print(f"[X] 剧本路径不存在: {args.script}")
         sys.exit(1)

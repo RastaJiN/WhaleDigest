@@ -76,8 +76,8 @@ metadata:
    ```
    串联 `sd_core/creator_markdown_check.py`、`sd_core/screenplay_index.py` + `duration_estimate.py`、`whale_pose_guard.py`、`whale_compiler.lint_task_prompt()` 与 `validate_batch_voice_consistency()`（同时扫描 `批量任务.json` 与 `03_生成任务/*/批量任务.json`）。
 2. **六步生产门禁 (`python scripts/whale_gatekeeper.py <项目目录> [1-6]`)**：
-   - **Gate 1**：`00_资产/` 物理图片存在性与可读性校验
-   - **Gate 2**：`剧本.md` 结构、对白格式与动作推进校验
+   - **Gate 1**：`输入/参考图/`（兼容旧项目 `00_资产/`）物理图片存在性与可读性校验
+   - **Gate 2**：`剧本.md` 结构、对白格式与动作推进校验（加载宝典后须先向用户确认复用现有资产/重建、目标集数、画幅、模式，再开跑；已有资产包直接挂载复用，支持 6 格 Model Sheet，严禁擅自切图或重写 `视觉设定.md`/`图片提示词.md`）
    - **Gate 3**：`分镜.md` 景别/机位活性、帧长与语速预算校验
    - **Gate 4**：显式画幅、`1–9` 槽位实图存在性、体位跨维度防呆与提示词编译校验
    - **Gate 5**：`whale_diff_audit.py` 盲检一致性、模式纯净度并签发 SHA-256 核对单

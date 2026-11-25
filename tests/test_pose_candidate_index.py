@@ -57,7 +57,7 @@ class CandidateTest(unittest.TestCase):
             save()
             with self.assertRaises(SystemExit): choose()
             step['support']='supine'; save()
-            cmd=[sys.executable,str(ROOT/'scripts/whale_pipeline.py'),str(source),'--dry','--aspect','9:16','--total','60']
+            cmd=[sys.executable,str(ROOT/'scripts/whale_pipeline.py'),str(source),'--dry','--aspect','9:16','--total','60','--scene','酒店客房']
             run=subprocess.run(cmd,capture_output=True,env={**os.environ,'PYTHONUTF8':'1'})
             batch=folder/'批量任务.json'
             self.assertTrue(batch.exists(),run.stderr)

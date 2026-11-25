@@ -343,7 +343,7 @@ def prepare(shots, *, scene_name, project=None, script_path=None, scene_id=None,
         edits = spec.get('shots', {})
         if not isinstance(edits, dict) or any(str(n) not in {str(i) for i in range(first,stop)} for n in edits):
             raise ValueError(f'{sid}：分镜调度引用了不属于本场的镜号')
-        location = scene.get('location', scene_name if len(scenes)==1 else 'established location')
+        location = scene.get('location', scene_name)
         if not isinstance(location,str) or not location.strip(): raise ValueError(f'{sid}：地点不能为空')
         state = _entity_state({k:scene[k] for k in ('world','props','gaze') if k in scene},sid)
         left = scene.get('screen_left'); src = '剧本明示' if sf.get('screen_left') else '分镜明示'

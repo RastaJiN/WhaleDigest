@@ -23,9 +23,19 @@ DASHBOARD_SERVER = SD_CORE_DIR / "dashboard_server.py"
 PROJECT_TOOL = SD_CORE_DIR / "project_tool.py"
 
 
+def _resolve_project_root(workspace: Path) -> Path:
+    """若传入剧集子目录（如 .../剧集/EP001），向上锚定到项目根目录，避免嵌套建档与多开工作台。"""
+    ws = workspace.resolve()
+    if ws.parent.name == "剧集" and ws.parent.parent.exists():
+        parent_root = ws.parent.parent
+        if (parent_root / "short-drama.json").exists() or (parent_root / "剧集").is_dir():
+            return parent_root
+    return ws
+
+
 def ensure_project_registered(workspace: Path) -> None:
     """确保工作区具备 short-drama.json 与 short-drama/state.json，避免打开报空项目。"""
-    ws = workspace.resolve()
+    ws = _resolve_project_root(workspace)
     ws.mkdir(parents=True, exist_ok=True)
     sd_json = ws / "short-drama.json"
     st_json = ws / "short-drama" / "state.json"
@@ -124,7 +134,7 @@ def auto_start_dashboard(project_dir, open_browser: bool = True):
     import os
     if os.environ.get("WHALE_NO_AUTO_DASHBOARD") == "1":
         return None
-    ws = Path(project_dir).expanduser().resolve()
+    ws = _resolve_project_root(Path(project_dir).expanduser())
     if not ws.exists() or _is_temp_test_dir(ws):
         return None
 
@@ -134,7 +144,7 @@ def auto_start_dashboard(project_dir, open_browser: bool = True):
 
     ensure_project_registered(ws)
 
-    # 先查询当前工作台是否已在运行
+    # 先查询当前工作台是否已在运行；已在线则静默复用（依赖 2.5s 热同步刷新），不再反复弹窗
     st = subprocess.run(
         [sys.executable, str(DASHBOARD_SERVER), "--workspace", str(ws), "--status"],
         capture_output=True, text=True, encoding="utf-8", timeout=15,
@@ -144,13 +154,7 @@ def auto_start_dashboard(project_dir, open_browser: bool = True):
             info = json.loads(st.stdout)
             url = info.get("url")
             if url and info.get("brand") == "tunjing-baodian" and not info.get("stale"):
-                print(f"[工作台] 检测到剧本已就绪，复用在线工作台: {url}")
-                if open_browser:
-                    try:
-                        import webbrowser
-                        webbrowser.open(url)
-                    except Exception:
-                        pass
+                print(f"[工作台] 检测到剧本已就绪，复用在线工作台（已开启自动热同步，不再重复弹窗）: {url}")
                 return url
             if info.get("stale"):
                 print("[工作台] 检测到后台运行着旧版本工作台，自动重启为最新版...")
@@ -186,7 +190,7 @@ def main() -> int:
     if not target:
         parser.error("必须提供项目目录：<project_dir> 或 --workspace <project_dir>")
 
-    ws = Path(target).expanduser().resolve()
+    ws = _resolve_project_root(Path(target).expanduser())
     if not args.status and not args.stop:
         ensure_project_registered(ws)
 
