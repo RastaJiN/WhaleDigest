@@ -18,11 +18,11 @@ metadata:
 
 ## 一、工作流与职责边界
 
-1. **创作台与阶段解耦（先规范导入、一次一环）**
+1. **端到端自主推进（禁止每步停下问“是否继续/确认”）**
+   - 除 **初次立项缺少题材/画幅** 与 **Gate 5 签发《监制五维核对签字单.md》后准备提交 ComfyUI 渲染前** 必须停机呈报外，其余从剧本导入、规范化、视觉设定、拆镜、提示词编译到 `whale_pipeline_check.py` / Gate 1–5 闭环修复，**全部在单轮内自主连贯跑通并自愈报错**，严禁每改完一个小环节就停下来等用户说“继续 / 确认”。
    - **非破坏性剧本导入与格式统一（`scripts/whale_script_intake.py`）**：
      按序执行：① `python scripts/whale_script_intake.py "<原稿>" --project "<项目目录>"` 先做 `--dry-run` 预览，核对分集数、剥离的 `人物小传-前言.md` 及每集 `duration_estimate` 的 `incomplete` 为 `null`（`review_status=clean`）；② 加 `--apply` 将原稿原字节备存至 `输入/original-*` 并写入 `剧集/<EP>/剧本.md`（存量非规范库用 `--standardize-workspace --apply`）；③ 接手旧/残缺工程的完整流程见 [takeover-and-patching.md](references/takeover-and-patching.md)。
-     - *规范与提取硬约束*：遵循 [screenplay-format.md](references/sd_core/screenplay-format.md)「规范化不改台词」，仅对齐结构外壳（`# EP001`、`## EP001-SC001 内/外 · 地点 · 时间`、`角色（表演）：台词`、`[VO]`/`[OS]`/`[SFX]`/`[画面文字]`/`[连续性]`）。提取 `--speaker` 前须先剥除 `[VO] ` / `[OS] ` 前缀（否则 `[OS]` 说话人会触发 `screenplay_index.py` 的 `source_issue`），读 `duration_estimate.py` JSON 时须读嵌套 `counts.*` 字段，修改解析器后须用真实 `.docx`/紧凑场标（`1-1日内`、`7-1 夜外`、`【字幕：...】`、`△动作。角色：台词`）实测而非只跑合成样本。
-   - **文档角色物理隔离与防错吞（禁止把分镜塞进 `剧本.md`）**：
+     - *规范与提取硬约束*：遵循 [screenplay-format.md](references/sd_core/screenplay-format.md)「规范化不改台词」，仅对齐结构外壳（`# EP001`、`## EP001-SC001 内/外 · 地点 · 时间`、`角色（表演）：台词`、`[VO]`/`[OS]`/`[SFX]`/`[画面文字]`/`[连续性]`）。分集切分与解析必须兼容 `# EP001《标题》`（集号紧邻书名号无空格）、`**角色：**`/`**角色 OS：**`（冒号在加粗内）、`` `<d>[Chinese]...</d>` `` 包裹对白及 `### 阶段`/`### 节拍` 连续性子标题；纯叙事动作句的修饰冒号（如 `面部近景：...`）与集前 `>` 摘要分别转为破折号或注释（动作描述长句绝不当说话人），以免触发 `screenplay_index.py` 的 `source_issue` 或让工作台侧栏显示 `**` 与假说话人。提取 `--speaker` 前须先剥除 `[VO] ` / `[OS] ` 前缀（否则 `[OS]` 说话人会触发 `screenplay_index.py` 的 `source_issue`），读 `duration_estimate.py` JSON 时须读嵌套 `counts.*` 字段，修改解析器后须用真实 `.docx`/紧凑场标（`1-1日内`、`7-1 夜外`、`【字幕：...】`、`△动作。角色：台词`）与多集加粗合并稿实测而非只跑合成样本。
      `whale_script_intake.py`、`whale_pipeline.py`、`whale_gatekeeper.py` (`audit_step_2`) 与 `sd_core/creator_views.py` (`parse_screenplay`) 统一经 `detect_document_role()` 校验文档身份；一旦命中 `SHOT-xx`+`景别`/`机位`/`f` 或 `subject_definitions:`+`detailed_description:` 立即拒绝导入或放行，严禁工作台用兜底逻辑把错误分镜吞成假场次。
      - *跨脚本/视图修改避坑*：改写 `whale_gatekeeper.py` 等多步骤脚本时，校验补丁必须锚定该步独有文件变量（如 Gate 2 的 `script_file`），禁止匹配 `with open(path)` 这类与 Gate 3（`分镜.md`）共用的模板行；扩展 `creator_views.py` 时须保留中文参考图文件名（禁止用 `[A-Za-z0-9_./-]+` 截断中文资产名），并区分项目根目录与分集目录——工作台进度与 `设定`/`分镜`/`提示词` 页签只认 `剧集/<EP>/` 下的对应文件，未制作下游阶段时如实保持 `0/N` 未写，不从下游反推伪造上游 `剧本.md`。
    - **五文档阶段推进**（契约见 [creator-documents.md](references/sd_core/creator-documents.md) 与 [creator-workflow.md](references/sd_core/creator-workflow.md)）：

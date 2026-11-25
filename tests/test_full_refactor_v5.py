@@ -290,5 +290,18 @@ class FullRefactorV5Test(unittest.TestCase):
                 store.close()
 
 
+    def test_offscreen_third_speaker_does_not_trip_two_slot_cast(self):
+        import whale_prose as prose
+        script = (
+            "## EP001-SC001 内 · 办公室 · 日\n\n"
+            "[VO] 林川：今天开始巡查。\n\n"
+            "欢宝：早啊！\n\n"
+            "[OS] 奶奶：记得吃早饭。\n\n"
+            "林川（无奈）：知道了。\n"
+        )
+        rows = prose.screenplay(script, aliases={"林川": "S2", "欢宝": "S1"})
+        self.assertTrue(len(rows) >= 4)
+
+
 if __name__ == "__main__":
     unittest.main()

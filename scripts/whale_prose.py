@@ -185,7 +185,10 @@ def screenplay(text, aliases=None) -> list[dict[str, Any]]:
                 if title: turn['speaker']=title[1]
             if not turn['speaker'] or not turn['text'].strip():
                 raise ValueError(f"第 {row['line']} 行对白缺说话人或正文；不能猜测")
-            casts[row['scene']].add(slot(turn['speaker']) or turn['speaker']); turn.update(line=row['line'], index=j)
+            is_offscreen = bool(re.match(r'^\s*\[(?:VO|OS)\]', row['raw'], re.I)) or (turn.get('cue') or '').strip().upper() in {'VO', 'OS', '旁白', '画外音', '语音'}
+            if not is_offscreen:
+                casts[row['scene']].add(slot(turn['speaker']) or turn['speaker'])
+            turn.update(line=row['line'], index=j)
         prev = row
 
     def bind(name, value):
@@ -218,7 +221,9 @@ def screenplay(text, aliases=None) -> list[dict[str, Any]]:
             raise ValueError(f'{sid}：请提供项目 角色映射.json（姓名到 S1/S2），不能按发言顺序猜测：{sorted(names)}')
     for row in rows:
         row['cast']={known[n]:n for n in sorted(casts[row['scene']])}
-        for t in row['turns']: t['actor']=known[slot(t['speaker']) or t['speaker']]
+        for t in row['turns']:
+            k_name = slot(t['speaker']) or t['speaker']
+            t['actor'] = known.get(k_name, 'S1')
     return [part for r in rows for part in _segments(r)]
 
 
