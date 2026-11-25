@@ -20,6 +20,10 @@ metadata:
 
 1. **端到端自主推进（禁止每步停下问“是否继续/确认”）**
    - 除 **初次立项缺少题材/画幅** 与 **Gate 5 签发《监制五维核对签字单.md》后准备提交 ComfyUI 渲染前** 必须停机呈报外，其余从剧本导入、规范化、视觉设定、拆镜、提示词编译到 `whale_pipeline_check.py` / Gate 1–5 闭环修复，**全部在单轮内自主连贯跑通并自愈报错**，严禁每改完一个小环节就停下来等用户说“继续 / 确认”。
+   - **严禁擅自重切集数、塞占位时长或改写原稿场次**：
+     ① 原稿是多少集（如 8 集），`剧集/EP001..EP008/剧本.md` 就必须严格按原稿集界与场次落盘，**未经用户明确同意，严禁擅自把 8 集重切成 11 集、严禁给无幕次的正剧硬塞“第一幕/第二幕”**；
+     ② **严禁把 `5秒` / `75秒` 占位分镜同步进正式 `分镜.md` 充数**，每镜时长必须按原对白字数 + 动作/反应实测排时并精确汇总；
+     ③ **H3 原生音画同生直出**：MiniMax H3（Ref2VA/I2VA）原生自带语音与环境声，**不要先跑离线 TTS 再去倒推切镜**；且已有资产包优先复用，禁止私自重造人物设定或新资产。
    - **非破坏性剧本导入与格式统一（`scripts/whale_script_intake.py`）**：
      按序执行：① `python scripts/whale_script_intake.py "<原稿>" --project "<项目目录>"` 先做 `--dry-run` 预览，核对分集数、剥离的 `人物小传-前言.md` 及每集 `duration_estimate` 的 `incomplete` 为 `null`（`review_status=clean`）；② 加 `--apply` 将原稿原字节备存至 `输入/original-*` 并写入 `剧集/<EP>/剧本.md`（存量非规范库用 `--standardize-workspace --apply`）；③ 接手旧/残缺工程的完整流程见 [takeover-and-patching.md](references/takeover-and-patching.md)。
      - *规范与提取硬约束*：遵循 [screenplay-format.md](references/sd_core/screenplay-format.md)「规范化不改台词」，仅对齐结构外壳（`# EP001`、`## EP001-SC001 内/外 · 地点 · 时间`、`角色（表演）：台词`、`[VO]`/`[OS]`/`[SFX]`/`[画面文字]`/`[连续性]`）。分集切分与解析必须兼容 `# EP001《标题》`（集号紧邻书名号无空格）、`**角色：**`/`**角色 OS：**`（冒号在加粗内）、`` `<d>[Chinese]...</d>` `` 包裹对白及 `### 阶段`/`### 节拍` 连续性子标题；纯叙事动作句的修饰冒号（如 `面部近景：...`）与集前 `>` 摘要分别转为破折号或注释（动作描述长句绝不当说话人），以免触发 `screenplay_index.py` 的 `source_issue` 或让工作台侧栏显示 `**` 与假说话人。提取 `--speaker` 前须先剥除 `[VO] ` / `[OS] ` 前缀（否则 `[OS]` 说话人会触发 `screenplay_index.py` 的 `source_issue`），读 `duration_estimate.py` JSON 时须读嵌套 `counts.*` 字段，修改解析器后须用真实 `.docx`/紧凑场标（`1-1日内`、`7-1 夜外`、`【字幕：...】`、`△动作。角色：台词`）与多集加粗合并稿实测而非只跑合成样本。
