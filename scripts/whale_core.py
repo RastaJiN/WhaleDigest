@@ -670,7 +670,7 @@ def build_dynamic_slots_header(slots, dur, aspect="16:9", scene_en="established 
 def build_fullref_header(
     dur,
     aspect,
-    scene="hotel suite",
+    scene="interior room",
     idea="",
     is_undress=False,
     is_staging=False,
@@ -921,7 +921,7 @@ def _speech_lock(actor, words, dur, tier, voiceover, voice_timbre=""):
 
 
 def build_shot_description(shot, index, total_shots, dur, size_desc, cam_desc,
-                           lines="", speaker="女子A", scene="hotel suite",
+                           lines="", speaker="角色A", scene="interior room",
                            emotion="default", voiceover=False, hold_last_second=False,
                            female_screen_side=None, tier="A_two_shot", nudity=False,
                            voice_timbre="", apply_de_oil=True, style_label="Live-action cinematic"):
@@ -1116,7 +1116,7 @@ def build_shot_description(shot, index, total_shots, dur, size_desc, cam_desc,
 
 
 def single_shot_prompt(shot, index, total_shots, dur, size_desc, cam_desc,
-                       lines="", speaker="女子A", idea="", scene="hotel suite", pose_names="",
+                       lines="", speaker="角色A", idea="", scene="interior room", pose_names="",
                        female_desc="young woman anchored in <Picture 1>, preserving her exact facial structure, hairstyle, skin tone, and anatomical proportions",
                        male_desc="mature man anchored in <Picture 2>, preserving his exact masculine facial identity, hairstyle, skin tone, and muscular build",
                        scene_props="", prop_ref="", prop_desc="key physical item anchored in <Picture 4>, preserving its exact printed markings, shape, and surface texture",
@@ -1192,11 +1192,11 @@ def single_shot_prompt(shot, index, total_shots, dur, size_desc, cam_desc,
     return "\n".join(parts)
 
 
-def header_block(dur, aspect="9:16", idea="", scene="hotel suite", pose_names=""):
+def header_block(dur, aspect="9:16", idea="", scene="interior room", pose_names=""):
     return build_fullref_header(dur, aspect, scene=scene, idea=idea)
 
 
-def footer_block(scene="hotel suite"):
+def footer_block(scene="interior room"):
     return [
         "Overall Soundscape:",
         "overall_soundscape: " + build_soundscape_en(scene),
