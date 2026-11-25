@@ -1,4 +1,4 @@
-# 🐳 吞鲸宝典 (WhaleDigest) · v4.6.3
+# 🐳 吞鲸宝典 (WhaleDigest) · v4.7.0
 
 > 吞鲸工作室 · 短剧工业化导演与门禁生产引擎
 > 阶段解耦 · 闭环门禁 · 多模型方言 · 本地工作台一体交付
@@ -30,6 +30,7 @@ python scripts/whale_dashboard.py "<项目目录>" --port 0 --detach --open
 
 | 脚本 / 文件 | 核心职责 |
 |---|---|
+| `scripts/whale_script_intake.py` | 非破坏性多集/散装剧本导入与格式统一（`规范化不改台词`） |
 | `scripts/whale_dashboard.py` | 唯一本地工作台启动入口（自动建档并拉起多视图交互工作台） |
 | `scripts/whale_pipeline_check.py` | Markdown 闭环校验（来源、4 字以上台词逐字核对、连续性锁）+ 动作真源联合核验 |
 | `scripts/whale_gatekeeper.py` | 六大刚性步进门禁状态机（Gate 1–6） |

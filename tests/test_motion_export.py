@@ -29,7 +29,8 @@ class MotionExport(unittest.TestCase):
                 shots.append(rows)
             baseline, a, b = [rows[0]['prompt'] for rows in shots]
             stale = baseline.split('At 0.00s: ')[1].split('\n')[0]
-            self.assertIn('Man A', stale)
+            self.assertNotIn('Man A', stale)
+            self.assertNotIn('Woman A', stale)
             for n, text in enumerate((a,b), 1):
                 pre, body = text.split('At 0.00s: ')
                 action, post = body.split('\n', 1)

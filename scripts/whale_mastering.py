@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-吞鲸宝典 v4.6.3 · 母带音画精修与声学特效缝合引擎 (WhaleDigest v4.6.3 Audio-Visual Mastering Engine)
+吞鲸宝典 v4.7.0 · 母带音画精修与声学特效缝合引擎 (WhaleDigest v4.7.0 Audio-Visual Mastering Engine)
 
 核心特性：
 1. 首部 2 帧“起势微顿帧”自动修剪 (`--trim-head-frames 2`，即 0.083s)：切除扩散模型从参考图刚起势的微僵硬帧，保留最流畅的中后段动量。
@@ -203,7 +203,7 @@ def master_episode(project_dir, trim_head_frames=2, out_name="全集精修母带
 
 
 def main():
-    ap = argparse.ArgumentParser(description="吞鲸 v4.6.3 母带音画精修与声学特效缝合引擎")
+    ap = argparse.ArgumentParser(description="吞鲸 v4.7.0 母带音画精修与声学特效缝合引擎")
     ap.add_argument("project_dir", help="项目目录路径")
     ap.add_argument("--trim-head-frames", type=int, default=2, help="每镜切除首部起势微顿帧数（默认2帧=0.08s，设0则不切）")
     ap.add_argument("--out-name", default="全集精修母带_Mastered.mp4", help="输出母带文件名")

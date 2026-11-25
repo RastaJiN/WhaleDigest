@@ -1022,7 +1022,9 @@ function viewOverview() {
   const cut = rows.filter((row) => row.has.film || row.has.cut).reduce((sum, row) => sum + (row.cutSeconds || 0), 0);
   const whole = perEpisode ? count * perEpisode : 0;
   const todos = seriesTodos(rows);
-  const meta = [series.format.aspect_ratio ? `竖屏 ${series.format.aspect_ratio}` : "", `${count} 集`, perEpisode ? `每集目标 ${perEpisode} 秒` : ""].filter(Boolean);
+  const _ar = String(series.format.aspect_ratio || "").trim();
+  const _orient = /^16:9$|^21:9$|^4:3$|^16:10$/.test(_ar) ? "横屏" : (_ar === "1:1" ? "方屏" : "竖屏");
+  const meta = [_ar ? `${_orient} ${_ar}` : "", `${count} 集`, perEpisode ? `每集目标 ${perEpisode} 秒` : ""].filter(Boolean);
   const kpi = (label, value, of, unit) => `<div class="card kpi"><div class="k">${label}</div><div class="v">${value}<small>/ ${of} ${unit}</small></div><div class="bar"><i data-css="width:${of ? Math.min(100, (value / of) * 100) : 0}%"></i></div></div>`;
   const profile = series.rhythm;
   const projectFiles = (S.files || []).filter((file) => !episodeName(file.path) && creatorSection(file.path, S.status?.ownership));
@@ -1323,7 +1325,6 @@ function renderInspector(row, E, id) {
   if (startSlot && !frame) { refClass = "missing"; refLabel = "写了起始帧，但项目里找不到这张图"; }
   else if (frame) { refClass = "bound"; refLabel = "已绑定起始帧"; }
   host.hidden = false;
-  mountWhaleInspectorExt(host, shot);
   document.body.classList.add("with-inspector");
   $("#scrim").hidden = !(typeof matchMedia === "function" && matchMedia("(max-width: 760px)").matches);
   host.innerHTML = `<div class="ins-head"><button class="icon-btn" type="button" data-act="close-ins" aria-label="关闭">${icon("close")}</button><div><div class="id">${esc(shot.id)}</div><div class="t">${esc(shot.title)}</div></div>
@@ -1352,6 +1353,9 @@ function renderInspector(row, E, id) {
     <div>${editButton(E.docs["分镜.md"], shot.id, "在分镜.md 里编辑这一镜")}</div>
   </div>`;
   host.dataset.back = `#/${row.id}/board${qs}`;
+  const _epMatch = (location.hash || "").match(/^#\/([^/?#]+)/);
+  const _epCur = (_epMatch && !["files", "file", "edit"].includes(_epMatch[1])) ? decodeURIComponent(_epMatch[1]) : "";
+  mountWhaleInspectorExt(host.querySelector(".ins-body") || host, shot, _epCur);
 }
 
 /* ================================================================ settings */
@@ -1625,7 +1629,13 @@ async function openEditor(q, sequence) {
     setDirty(false);
     $("#editState").textContent = editable ? "已载入" : "只读";
     if (at) {
-      const index = data.content.indexOf(`## ${at}`);
+      const numPart = at.replace(/^SHOT-(?:EP\d+-)?/i, "");
+      const candTargets = [`## ${at}`, `### ${at}`, `#### [${at}]`, `#### ${at}`, `| **${numPart}** |`, `| ${numPart} |`, at];
+      let index = -1;
+      for (const pat of candTargets) {
+        const hit = data.content.indexOf(pat);
+        if (hit >= 0) { index = hit; break; }
+      }
       if (index >= 0) {
         // Measure the wrapped height of everything above the heading, so the
         // shot lands at the top however long its preceding lines wrap.
@@ -2079,60 +2089,78 @@ if (typeof module !== "undefined" && module.exports) {
 }
 
 
-async function mountWhaleInspectorExt(host, shot) {
+async function mountWhaleInspectorExt(host, shot, ep = "") {
   const sid = (shot && (shot.id || shot.shot_id || shot.label)) || "";
   if (!sid || !host) return;
   let box = document.getElementById("whale-inspector-ext");
   if (!box) {
     box = document.createElement("div");
     box.id = "whale-inspector-ext";
-    box.style.cssText = "margin-top:16px;padding-top:14px;border-top:1px solid var(--zs-line,#262f42);";
+    box.className = "whale-ext-box";
     host.appendChild(box);
   }
-  box.innerHTML = '<div style="font-size:12px;color:var(--zs-ink-500,#8b97b0);">正在加载选人/体位绑定...</div>';
+  box.innerHTML = '<div class="muted">正在加载选人/体位绑定…</div>';
   try {
-    const data = await api("/api/whale/shot?shot_id=" + encodeURIComponent(sid));
-    if (!data || !data.ok) { box.innerHTML = ""; return; }
+    const data = await api(`/api/whale/shot?${query({ shot_id: sid, ...(ep ? { ep } : {}) })}`);
+    if (!data || !data.ok || (!data.is_adult && !(data.assets && data.assets.length))) { box.remove(); return; }
     const curRefs = (data.shot && data.shot.ref_images) || [];
     const curPose = (data.shot && data.shot.pose) || "";
     const poseOpts = ['<option value="">-- 不指定 / 纯文戏 --</option>'].concat(
       (data.poses || []).map(p => `<option value="${esc(p.id)}" ${p.id === curPose ? 'selected' : ''}>${esc(p.nameZh)} (${esc(p.id)})</option>`)
     ).join("");
     const assetChecks = (data.assets || []).map(a => {
-      const checked = curRefs.some(r => r.endsWith(a.name) || r === a.rel) ? "checked" : "";
-      return `<label style="display:flex;align-items:center;gap:6px;padding:4px 6px;border:1px solid var(--zs-line,#262f42);border-radius:6px;font-size:12px;cursor:pointer;">
+      const _bname = s => String(s || "").split(/[\\/]/).pop();
+      const checked = curRefs.some(r => _bname(r) === a.name || r === a.rel) ? "checked" : "";
+      return `<label class="whale-ext-chk" title="${esc(a.rel)}">
         <input type="checkbox" class="whale-ref-chk" value="${esc(a.rel)}" ${checked}/>
-        <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${esc(a.name)}">${esc(a.name)}</span>
+        <span>${esc(a.name)}</span>
       </label>`;
-    }).join("") || '<div style="font-size:12px;color:var(--zs-ink-500);">00_资产/ 暂无图片</div>';
+    }).join("") || '<div class="muted">00_资产/ 暂无图片</div>';
 
     box.innerHTML = `
-      <div style="font-weight:600;font-size:13px;margin-bottom:8px;">🎛️ ${data.is_adult ? '选人 / 选体位防错' : '选人 / 参考图绑定'}（写回 批量任务.json）</div>
-      ${data.is_adult ? `<div style="margin-bottom:8px;">
-        <select id="whale-pose-sel" style="width:100%;padding:6px;border-radius:6px;background:var(--zs-bg,#0b0e14);color:var(--zs-ink-900,#e6ebf5);border:1px solid var(--zs-line,#262f42);font-size:12px;">${poseOpts}</select>
-      </div>` : '<input type="hidden" id="whale-pose-sel" value=""/>'}
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;max-height:180px;overflow-y:auto;margin-bottom:10px;">${assetChecks}</div>
-      <button type="button" id="whale-save-btn" class="btn primary" style="width:100%;padding:6px 10px;font-size:12px;">💾 保存本镜绑定</button>
-      <div id="whale-save-msg" style="font-size:12px;margin-top:6px;color:var(--zs-ink-500);"></div>
+      <div class="whale-ext-title">🎛️ ${data.is_adult ? '选人 / 选体位防错' : '选人 / 参考图绑定'}</div>
+      ${data.is_adult ? `<select id="whale-pose-sel" class="whale-ext-sel">${poseOpts}</select>` : '<input type="hidden" id="whale-pose-sel" value=""/>'}
+      <div class="whale-ext-grid">${assetChecks}</div>
+      <div class="whale-ext-actions">
+        <button type="button" id="whale-save-btn" class="wp-btn wp-btn-primary">💾 保存绑定</button>
+        <button type="button" id="whale-copy-shot-btn" class="wp-btn">📋 复制本镜绑定</button>
+      </div>
+      <div id="whale-save-msg" class="whale-ext-msg muted"></div>
     `;
-    document.getElementById("whale-save-btn").onclick = async () => {
-      const pose = document.getElementById("whale-pose-sel").value;
-      const refs = Array.from(document.querySelectorAll(".whale-ref-chk:checked")).map(c => c.value);
-      const msg = document.getElementById("whale-save-msg");
-      msg.textContent = "保存中...";
-      const res = await fetch((S.apiBase || "") + "/api/whale/shot", {
-        method: "POST",
-        headers: {"Content-Type": "application/json", "X-Requested-With": "XMLHttpRequest"},
-        body: JSON.stringify({shot_id: sid, pose: pose, ref_images: refs})
-      });
-      const out = await res.json();
-      msg.textContent = out.ok ? "✅ 已写回 批量任务.json" : ("❌ " + (out.error || "失败"));
-    };
+    const saveBtn = document.getElementById("whale-save-btn");
+    const copyBtn = document.getElementById("whale-copy-shot-btn");
+    if (saveBtn) {
+      saveBtn.onclick = async () => {
+        const pose = document.getElementById("whale-pose-sel").value;
+        const refs = Array.from(document.querySelectorAll(".whale-ref-chk:checked")).map(c => c.value);
+        const msg = document.getElementById("whale-save-msg");
+        msg.textContent = "保存中…";
+        try {
+          const out = await api("/api/whale/shot", {
+            method: "POST",
+            headers: {"Content-Type": "application/json", "X-Requested-With": "XMLHttpRequest"},
+            body: JSON.stringify({shot_id: sid, ...(ep ? { ep } : {}), pose: pose, ref_images: refs})
+          });
+          msg.textContent = out.ok ? "✅ 已写回 批量任务.json" : ("⚠️ " + (out.error || "保存失败"));
+        } catch (err) {
+          msg.textContent = "⚠️ " + (err.message || "未找到 批量任务.json，可点右侧复制指令给助手写分镜");
+        }
+      };
+    }
+    if (copyBtn) {
+      copyBtn.onclick = () => {
+        const pose = document.getElementById("whale-pose-sel").value;
+        const refs = Array.from(document.querySelectorAll(".whale-ref-chk:checked")).map(c => c.value);
+        const txt = `镜头 ${sid} 绑定修改：` + (pose ? `体位=${pose}；` : "") + `参考图=[${refs.join(", ")}]`;
+        navigator.clipboard?.writeText(txt);
+        const msg = document.getElementById("whale-save-msg");
+        if (msg) msg.textContent = "📋 已复制本镜绑定指令";
+      };
+    }
   } catch (e) {
     box.innerHTML = "";
   }
 }
-
 
 window.__WHALE_EP_POSES = window.__WHALE_EP_POSES || {};
 window.__WHALE_POSE_CAT = "全部";
@@ -2186,8 +2214,8 @@ function viewPoses(row) {
 
     <div class="wp-seq-box">
       <div class="wp-seq-head">
-        <span class="wp-seq-title">已选体位顺序 <span id="whale-sel-count" class="muted" style="font-weight:400;margin-left:6px;">0 项</span></span>
-        <span id="whale-pose-save-msg" style="font-size:12px;color:var(--zs-accent);"></span>
+        <span class="wp-seq-title">已选体位顺序 <span id="whale-sel-count" class="muted wp-sel-cnt">0 项</span></span>
+        <span id="whale-pose-save-msg" class="wp-seq-msg"></span>
       </div>
       <div id="whale-selected-chips" class="wp-chips"></div>
     </div>
@@ -2226,6 +2254,12 @@ function bindWhalePoseEvents(ep) {
       const card = e.target.closest("[data-pose-id]");
       if (card) toggleWhalePose(ep, card.dataset.poseId);
     };
+    grid.onkeydown = (e) => {
+      if (e.key === "Enter" || e.key === " ") {
+        const card = e.target.closest("[data-pose-id]");
+        if (card) { e.preventDefault(); toggleWhalePose(ep, card.dataset.poseId); }
+      }
+    };
   }
   if (chips) {
     chips.onclick = (e) => {
@@ -2257,7 +2291,7 @@ function renderWhalePoseUI(ep) {
           <button type="button" class="wp-chip-rm" data-rm-pose="${esc(pid)}">×</button>
         </span>`;
       }).join("")
-    : '<span class="muted" style="font-size:12px;">尚未选择体位，点击下方任意卡片按顺序加入…</span>';
+    : '<span class="muted wp-empty-hint">尚未选择体位，点击下方任意卡片按顺序加入…</span>';
 
   const catOrder = ["全部", "前戏与调情", "口舌互动", "骑乘与坐姿", "后入与俯卧", "正入与侧卧", "高潮与特写"];
   if (catBar) {
@@ -2265,7 +2299,7 @@ function renderWhalePoseUI(ep) {
       const isAct = window.__WHALE_POSE_CAT === c;
       const count = c === "全部" ? poses.length : poses.filter(p => p._cat === c).length;
       if (c !== "全部" && count === 0) return "";
-      return `<button type="button" class="wp-cat ${isAct ? 'active' : ''}" data-cat="${esc(c)}">${esc(c)} <span style="opacity:.7;">${count}</span></button>`;
+      return `<button type="button" class="wp-cat ${isAct ? 'active' : ''}" data-cat="${esc(c)}">${esc(c)} <span class="wp-cat-cnt">${count}</span></button>`;
     }).join("");
   }
 
@@ -2288,7 +2322,7 @@ function renderWhalePoseUI(ep) {
             </div>
             <span class="wp-card-badge">${esc(p.id)}</span>
           </div>
-          <div class="wp-card-desc" style="margin-top:8px;" title="${esc(p.framingZh || '')}">${esc(sp.body)}</div>
+          <div class="wp-card-desc" title="${esc(p.framingZh || '')}">${esc(sp.body)}</div>
         </div>
         <div class="wp-card-foot">
           <span class="wp-tag">${esc(sp.tag)}</span>

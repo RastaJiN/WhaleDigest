@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-吞鲸宝典 v4.6.3 · ComfyUI 全自动后台批跑与微创重摇点火器 (WhaleDigest v4.6.3 Auto-Runner & Surgical Re-roller)
+吞鲸宝典 v4.7.0 · ComfyUI 全自动后台批跑与微创重摇点火器 (WhaleDigest v4.7.0 Auto-Runner & Surgical Re-roller)
 
 核心能力：
 1. 断点续跑 (Checkpoint Resume)：崩溃或中断后重启自动跳过已落盘合格镜头，绝不重头白跑。
@@ -143,6 +143,16 @@ def load_or_init_series_bible(project_dir):
         with open(bible_path, "r", encoding="utf-8") as f:
             return json.load(f), bible_path
 
+    _is_std = False
+    for _cfg in (os.path.join(project_dir, "short-drama.json"), os.path.join(project_dir, "批量任务.json")):
+        if os.path.isfile(_cfg):
+            try:
+                with open(_cfg, "r", encoding="utf-8") as _cf:
+                    if json.load(_cf).get("project_mode") == "standard_drama":
+                        _is_std = True
+                        break
+            except Exception:
+                pass
     default_bible = {
         "schema": "tunjing-series-bible-v4",
         "audio_mode": "H3_native_audio",
@@ -152,15 +162,15 @@ def load_or_init_series_bible(project_dir):
             "unet": "minimax_h3_hybrid_fl2va_ref2va_b25-49-int8.safetensors",
             "clip": "qwen3vl_32b_minimax_h3_ultra_uncensored_heretic_int8_convrot.safetensors",
             "lora_dmad": {"name": "minimax_h3_dmad_full_dareties_v4_step600_comfy_fro.safetensors", "strength": 0.80},
-            "lora_mystic": {"name": "MysticXXX_MMH3-V5-ref2va.safetensors", "drama_strength": 0.0, "action_strength": 0.45},
+            "lora_mystic": {"name": "MysticXXX_MMH3-V5-ref2va.safetensors", "drama_strength": 0.0, "action_strength": 0.0 if _is_std else 0.45},
             "lora_style": {"name": "H3_RuMengSiHuan_1536-e8.safetensors", "strength": 0.80}
         },
         "characters": {
-            "female_lead": {
+            "female_lead": {"dressed_master": "female_dressed.png"} if _is_std else {
                 "dressed_master": "female_dressed.png",
                 "nude_master": "female_nude.png"
             },
-            "male_lead": {
+            "male_lead": {"dressed_master": "male_dressed.png"} if _is_std else {
                 "dressed_master": "male_dressed.png",
                 "nude_master": "male_nude.png"
             }
@@ -414,7 +424,7 @@ def parse_reroll_targets(reroll_str):
 
 
 def main():
-    ap = argparse.ArgumentParser(description="吞鲸 v4.6.3 ComfyUI 全自动后台批跑与微创重摇点火器")
+    ap = argparse.ArgumentParser(description="吞鲸 v4.7.0 ComfyUI 全自动后台批跑与微创重摇点火器")
     ap.add_argument("project_dir", help="项目目录（内含 批量任务.json）")
     ap.add_argument("--dry-build", action="store_true", help="仅在本地生成逐镜就绪的 API JSON 包与跨集账本")
     selection = ap.add_mutually_exclusive_group()
@@ -510,7 +520,7 @@ def main():
         with open(out_p, "w", encoding="utf-8") as f:
             json.dump(wf, f, ensure_ascii=False, indent=2)
 
-    print(f"[✓] 已在 {payload_dir} 生成 {len(shots)} 份吞鲸 v4.6.3 逐镜 API 负载（已完成 LoRA 文肉分级与空间图池绑定）。")
+    print(f"[✓] 已在 {payload_dir} 生成 {len(shots)} 份吞鲸 v4.7.0 逐镜 API 负载（已完成 LoRA 文肉分级与空间图池绑定）。")
     if args.dry_build:
         return
 

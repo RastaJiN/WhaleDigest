@@ -185,6 +185,64 @@ def parse_screenplay(text: str) -> dict[str, Any]:
             continue
         current["blocks"].append({"k": "action", "text": paragraph})
     if not scenes:
+        # 兼容吞鲸传统剧本格式：### 场景一：...（夜） 或 ## 场次 A
+        alt_scene_re = re.compile(r"^(?:#{2,3}\s+)?(?:场景[^：:\s]*[：:]\s*)?((?:EP\d+-SC\d+|SC\d+).+|.+)$")
+        cur_alt = None
+        sc_idx = 0
+        for paragraph in _paragraphs(text):
+            if paragraph.startswith("## ") or paragraph.startswith("### ") or re.match(r"^(?:EP\d+-)?SC\d+\b", paragraph):
+                if any(k in paragraph for k in ("场景", "场次", "SC", "序幕", "尾声", "终章", "第", "幕")) and "剧本正文" not in paragraph and "核心人物" not in paragraph:
+                    sc_idx += 1
+                    m_loc = alt_scene_re.match(paragraph)
+                    raw_loc = (m_loc.group(1) if m_loc else paragraph).strip()
+                    sc_m = re.match(r"^(?:EP\d+-)?(SC\d+)[·・\s]+(.+)$", raw_loc)
+                    sc_key = sc_m.group(1) if sc_m else f"SC{sc_idx:03d}"
+                    body_loc = sc_m.group(2).strip() if sc_m else raw_loc
+                    parts = [pt.strip() for pt in re.split(r"[·・]", body_loc) if pt.strip()]
+                    if len(parts) >= 3 and parts[0] in {"内", "外", "内外"}:
+                        sp_val, loc, tm = parts[0], parts[1], parts[2]
+                    else:
+                        sp_val = "内"
+                        t_m = re.search(r"[（(]([^）)]+)[）)]\s*$", body_loc)
+                        tm = t_m.group(1) if t_m else "日"
+                        loc = re.sub(r"[（(][^）)]+[）)]\s*$", "", body_loc).strip()
+                    cur_alt = {"id": sc_key, "space": sp_val, "place": loc or f"场{sc_idx}", "time": tm, "blocks": []}
+                    scenes.append(cur_alt)
+                    continue
+            if cur_alt is not None and not paragraph.startswith("#") and paragraph != "---":
+                cleaned = re.sub(r"^[△▲]\s*", "", paragraph).strip()
+                if cleaned.startswith("**出场资产**"):
+                    continue
+                d_m = DIALOGUE_RE.match(cleaned)
+                if d_m:
+                    cur_alt["blocks"].append({
+                        "k": "line", "tag": "", "who": d_m.group("speaker"),
+                        "paren": (d_m.group("cue") or "").strip(), "text": d_m.group("text").strip(),
+                    })
+                elif cleaned:
+                    cur_alt["blocks"].append({"k": "action", "text": cleaned})
+    if not scenes:
+        if len(re.findall(r"^#{1,4}\s+\[?(?:SHOT|MOTION)-|^SHOT-\d+\b", text, re.M)) >= 2:
+            raise ValueError("当前 剧本.md 内混入了分镜条目 (SHOT-xx) 而非场次剧本，请把分镜放入 分镜.md")
+        # 执行稿剧本终极兜底（保留真实对话/动作，不再报空）
+        fallback_blocks = []
+        for paragraph in _paragraphs(text):
+            if paragraph.startswith("#") or paragraph == "---":
+                continue
+            cleaned = re.sub(r"^[△▲]\s*", "", paragraph).strip()
+            if not cleaned:
+                continue
+            d_m = DIALOGUE_RE.match(cleaned)
+            if d_m:
+                fallback_blocks.append({
+                    "k": "line", "tag": "", "who": d_m.group("speaker"),
+                    "paren": (d_m.group("cue") or "").strip(), "text": d_m.group("text").strip(),
+                })
+            else:
+                fallback_blocks.append({"k": "action", "text": cleaned})
+        if fallback_blocks:
+            scenes.append({"id": "SC001", "space": "内", "place": "正片执行稿", "time": "日", "blocks": fallback_blocks})
+    if not scenes:
         raise ValueError("没有找到 `## EP001-SC001 内 · 地点 · 时间` 这样的场次标题")
     return {"title": title, "scenes": scenes}
 
@@ -253,6 +311,34 @@ def parse_settings(text: str) -> dict[str, Any]:
             "lock": lock,
             "overlay": bool(OVERLAY_ONLY_RE.search(body)),
         })
+    if not items:
+        cur_cat = "人物"
+        for ln in text.splitlines():
+            s_ln = ln.strip()
+            if s_ln.startswith("#"):
+                if "场景" in s_ln:
+                    cur_cat = "场景"
+                elif "道具" in s_ln or "物" in s_ln:
+                    cur_cat = "道具"
+                elif "角色" in s_ln or "人物" in s_ln:
+                    cur_cat = "人物"
+                continue
+            if s_ln.startswith("|") and s_ln.endswith("|"):
+                cols = [c.strip() for c in s_ln.strip("|").split("|")]
+                if len(cols) >= 4 and not cols[0].startswith(":") and cols[0] not in ("角色代码", "场景代码", "道具代码", "名称"):
+                    nm = re.sub(r"\*\*", "", cols[0]).strip()
+                    img_f = re.sub(r"`", "", cols[1]).strip()
+                    spec = cols[2]
+                    desc_txt = cols[3]
+                    items.append({
+                        "cat": cur_cat,
+                        "name": nm,
+                        "designators": [],
+                        "desc": [desc_txt] if desc_txt else [],
+                        "fields": {"资产文件": img_f, "规格": spec},
+                        "lock": None,
+                        "overlay": False,
+                    })
     if not items:
         raise ValueError("没有找到 `## 人物 · 名称` 这样的设定条目")
     return {"form": meta.get("制作形态", "").rstrip("。"), "era": era, "items": items}
@@ -345,6 +431,116 @@ def parse_storyboard(text: str) -> dict[str, Any]:
             "keyframe": check._copyable_prompt(section, "冻结关键帧提示词") or "",
         })
     if not shots:
+        def _infer_scale(fr: str) -> str:
+            sc = shot_scale(fr)
+            if sc:
+                return sc
+            for code, zh_sc in {"wide": "远景", "mcu": "中近景", "cu": "近景", "macro": "大特写", "hip": "特写", "face": "特写"}.items():
+                if re.search(rf"\b{code}\b", fr, re.I):
+                    return zh_sc
+            if any(k in fr for k in ("极远景", "大远景", "大全景", "超广角", "定调", "大景")):
+                return "远景"
+            if any(k in fr for k in ("极近", "微距")):
+                return "大特写"
+            if "中特写" in fr:
+                return "近景"
+            if any(k in fr for k in ("局部", "手部", "脚部", "道具")):
+                return "细节"
+            if any(k in fr for k in ("全身", "广角", "门", "空间", "跟拍", "群像")):
+                return "全景"
+            if any(k in fr for k in ("半身", "过肩", "正面", "侧面", "仰拍", "俯拍", "反打", "双人")):
+                return "中景"
+            return "中景"
+
+        # 兼容1：### SHOT-01 / #### [SHOT-EP001-001] 标题 / #### SHOT-EP002-001｜标题
+        alt_head_re = re.compile(r"^(?:#{2,4}\s+)?\[?((?:SHOT|R\d+)-[A-Za-z0-9-]+|SHOT-\d+)\]?[·・｜|\s]*(.*)$", re.MULTILINE)
+        alt_matches = list(alt_head_re.finditer(text))
+        sc_marks = []
+        act_idx = 0
+        for sm in re.finditer(r"^(?:#{2,4}\s+)?((?:EP\d+-)?SC\d+)\b|^#{2,4}\s+(第[一二三四五六七八九十百0-9]+[幕场]\s*[^\r\n]*)", text, re.MULTILINE):
+            if sm.group(1):
+                sc_marks.append((sm.start(), sm.group(1)))
+            else:
+                act_idx += 1
+                sc_marks.append((sm.start(), f"SC{act_idx:03d}"))
+        for idx, m in enumerate(alt_matches):
+            sid = m.group(1)
+            sec = text[m.start(): alt_matches[idx + 1].start() if idx + 1 < len(alt_matches) else None]
+            nearest_sc = next((sc_id for pos, sc_id in reversed(sc_marks) if pos < m.start()), "SC001")
+            raw_title = re.sub(r"^\[Track:[^\]]+\]\s*|^[·｜|\s]+", "", m.group(2)).strip()
+            kv = {}
+            for ln in sec.splitlines()[1:]:
+                fm = re.match(r"^(?:[-*]\s*)?(?:\*\*)?([^：:*|\s][^：:*]{0,18}?)(?:\*\*)?[：:]\s*(.*)$", ln.strip())
+                if fm:
+                    kv[fm.group(1).strip()] = fm.group(2).strip()
+            framing_raw = kv.get("景别/机位") or kv.get("景别/运镜") or kv.get("景别 / 运镜") or kv.get("景别 / 机位") or kv.get("景别机位") or " / ".join(x for x in [kv.get("景别", ""), kv.get("机位", "")] if x) or m.group(2).strip()
+            scale = _infer_scale(framing_raw)
+            dur_txt = kv.get("物理时长") or kv.get("时长") or m.group(2) + "\n" + sec
+            dm = re.search(r"([0-9]+(?:\.[0-9]+)?)\s*(?:秒|s\b)", dur_txt, re.I)
+            sec_val = float(dm.group(1)) if dm else 4.0
+            move = (
+                kv.get("运镜")
+                or (re.search(r"运镜[：:]\s*(.+)$", framing_raw).group(1).strip() if "运镜" in framing_raw else "")
+                or (framing_raw.split("➔", 1)[1].strip() if "➔" in framing_raw else "")
+                or (re.sub(r"`", "", framing_raw.split("/", 1)[1]).strip() if "/" in framing_raw else "")
+            )
+            action = kv.get("动作") or kv.get("唯一动作") or kv.get("画面") or kv.get("画面动线与构图") or kv.get("姿势") or ""
+            speech_txt = kv.get("台词") or kv.get("OS") or kv.get("VO") or kv.get("发声") or ""
+            sfx_txt = kv.get("声音设计") or kv.get("声音反馈") or kv.get("声音") or ""
+            sound = "｜".join(x for x in [speech_txt, sfx_txt] if x and x not in {"无", "无对白", "无对白。"}) or sfx_txt or speech_txt
+            ref_files = re.findall(r"([^\s`'\"“”‘’\[\](),，;；<>]+\.(?:png|jpg|jpeg|webp))", sec, re.I)
+            slots = [{"kind": "REF", "id": f"REF-{si+1:02d}", "order": si + 1, "path": rf, "name": Path(rf).name, "use": "参考"} for si, rf in enumerate(ref_files[:9])]
+            ref_st = "bound" if slots else "none"
+            shots.append({
+                "id": sid, "n": idx + 1, "title": raw_title or action[:24] or sid,
+                "scene": kv.get("来源") or nearest_sc, "sec": sec_val, "secDeclared": dm is not None,
+                "purpose": kv.get("目的") or kv.get("体位") or kv.get("姿势") or "承接本镜叙事动作",
+                "framing": framing_raw, "scale": scale, "close": scale in CLOSE_SCALES,
+                "move": move or "静态锁定", "moveKind": re.split(r"[；;，,➔]", move or "静态锁定")[0].strip(),
+                "start": kv.get("起点") or kv.get("画面") or "", "action": action, "end": kv.get("终点") or kv.get("结束状态") or kv.get("终点与承接") or "",
+                "sound": sound, "screenText": kv.get("画面文字") or "",
+                "imgs": [], "refs": slots, "refState": ref_st, "refLabel": REF_STATES[ref_st],
+                "basis": [], "keyframe": "",
+            })
+
+        # 兼容2：Markdown 表格分镜 (| **001** | 大全景·缓俯移 | 画面动作 | 台词 | 6.0s / 141f | ref... |)
+        if not shots:
+            cur_scene = "SC001"
+            sc_i = 0
+            for ln in text.splitlines():
+                s_ln = ln.strip()
+                if s_ln.startswith("## ") and any(k in s_ln for k in ("幕", "场", "阶段")):
+                    sc_i += 1
+                    cur_scene = f"SC{sc_i:03d}"
+                    continue
+                if s_ln.startswith("|") and s_ln.endswith("|"):
+                    cols = [c.strip() for c in s_ln.strip("|").split("|")]
+                    if len(cols) >= 5 and re.fullmatch(r"(?:\*\*)?\d{2,4}[A-Za-z]?(?:\*\*)?", cols[0]):
+                        num = re.sub(r"\*", "", cols[0]).strip()
+                        sid = f"SHOT-{num}"
+                        framing_raw = cols[1]
+                        action = re.sub(r"\*\*", "", cols[2]).strip()
+                        sound = cols[3]
+                        dm = re.search(r"([0-9]+(?:\.[0-9]+)?)\s*(?:秒|s\b)", cols[4], re.I)
+                        sec_val = float(dm.group(1)) if dm else 4.0
+                        ref_col = cols[5] if len(cols) > 5 else ""
+                        ref_tokens = re.findall(r"`ref_image_\d+`[：:]\s*([A-Za-z0-9_.-]+)", ref_col)
+                        if not ref_tokens:
+                            ref_tokens = re.findall(r"([A-Za-z0-9_.-]+\.(?:png|jpg|jpeg|webp))", ref_col, re.I)
+                        slots = [{"kind": "REF", "id": f"REF-{si+1:02d}", "order": si + 1, "path": rf, "name": Path(rf).name, "use": "参考"} for si, rf in enumerate(ref_tokens[:9])]
+                        ref_st = "bound" if slots else "none"
+                        scale = _infer_scale(framing_raw)
+                        move = framing_raw.split("·", 1)[1].strip() if "·" in framing_raw else "静态锁定"
+                        shots.append({
+                            "id": sid, "n": len(shots) + 1, "title": action[:28] or sid,
+                            "scene": cur_scene, "sec": sec_val, "secDeclared": dm is not None,
+                            "purpose": "表格分镜映射", "framing": framing_raw, "scale": scale,
+                            "close": scale in CLOSE_SCALES, "move": move, "moveKind": move,
+                            "start": "", "action": action, "end": "", "sound": sound, "screenText": "",
+                            "imgs": [], "refs": slots, "refState": ref_st, "refLabel": REF_STATES[ref_st],
+                            "basis": [], "keyframe": "",
+                        })
+    if not shots:
         raise ValueError("没有找到 `## SHOT-EP001-001 · 标题` 这样的镜头")
     return {"note": note.group(1).strip() if note else "", "shots": shots}
 
@@ -395,6 +591,26 @@ def parse_video_prompts(text: str) -> list[dict[str, Any]]:
             "chain": fields.get("状态链", ""),
             "prompt": check._copyable_prompt(section) or "",
         })
+    if not prompts:
+        alt_vp_re = re.compile(r"^#{2,4}\s+\[?((?:MOTION|SHOT|R\d+)-[A-Za-z0-9-]+|SHOT-\d+)\]?\s*(.*)$", re.MULTILINE)
+        alt_matches = list(alt_vp_re.finditer(text))
+        for idx, m in enumerate(alt_matches):
+            mid = m.group(1)
+            sec = text[m.start(): alt_matches[idx + 1].start() if idx + 1 < len(alt_matches) else None]
+            code_m = re.search(r"```(?:text|prompt)?\s*\n([\s\S]*?)\n```", sec)
+            if not code_m:
+                continue
+            dm = re.search(r"([0-9]+(?:\.[0-9]+)?)\s*(?:秒|s\b)", m.group(2) + " " + sec[:200], re.I)
+            prompts.append({
+                "id": mid,
+                "n": idx + 1,
+                "title": re.sub(r"^\([^)]*\)|^[·\s]+", "", m.group(2)).strip() or mid,
+                "shot": mid if mid.startswith("SHOT-") else f"SHOT-{idx+1:02d}",
+                "sec": float(dm.group(1)) if dm else 0,
+                "mode": "Ref2V",
+                "chain": "",
+                "prompt": code_m.group(1).strip(),
+            })
     if not prompts:
         raise ValueError("没有找到 `## MOTION-… · 标题` 这样的视频提示词条目")
     return prompts

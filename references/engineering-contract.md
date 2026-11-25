@@ -8,7 +8,10 @@ Gate 4 按实际任务中的每一个 `prompt` 检查。Markdown 文档拆块检
 
 门禁证据绑定实际输入：任务选择、任务原文、剧本、分镜、资产与相关校验器版本。Gate 5 另绑定生成的终审报告。输入改变、报告变更或删除、旧记录缺失证据时需要重新验收；历史 PASS 与人工备注不能充当当前证据。实际提交前再次检查当前任务、状态和完整性令牌。签名计算失败时拒绝降级为裸哈希。
 
-任务读取兼容没有 schema 的现有批量文件；显式未知 schema 被拒绝。正式提交前严格检查显式画幅 `aspect`（`16:9` / `9:16` / `1:1`，缺失直接阻断，禁止静默套用默认竖屏）、整数帧数、24 fps 时长、总帧数和 1–9 个有序图像引用。9 个参考图槽位可自由开关并承载任意角色（含 3 人以上群像）、场景或道具，不写死“1=女/2=男/3=场景”；提示词按实际槽位声明 `<Subject N> ↔ <Picture N>`，所有未使用的槽位连接均须断开，缺节点不能生成悬空连接。Gate 1 拒绝空 `00_资产/` 目录；Gate 4、Gate 5 与运行器无条件核验每一镜 `ref_images` 均物理存在于 `00_资产/` 且可解码。用户通过 `--workflow` 或 `.whale_project.json` 的 `workflow` 指定工作流时，运行器按节点 `class_type` 原地回填，严禁私自新建工作流；非肉戏/动画镜头未显式设置 `lora_mystic_strength` 时默认归零 `0.0`。≥5 镜的分镜与批次严禁单一机位、单一景别或静态机位超过 60%。
+任务读取兼容没有 schema 的现有批量文件；显式未知 schema 被拒绝。创作台视图层（`sd_core/creator_views.py`）与文本编辑器定位（`openEditor`）须按原版标准 `## EPxxx-SCxxx` / `## SHOT-EPxxx-xxx · 标题` 优先解析，并向后兼容宝典 `### SHOT-xx`、`## 第X幕` 场景映射、表格分镜、无 `##` 全角间隔号 `SHOT-EPxxx-xxx・...`、`/` 分隔的景别运镜、`画面`/`OS`/`结束状态` 字段、以及多目录资产路径（`00_资产/`、`assets/`、`制作成果/assets/`、`剧集/*/00_资产/`），同时对 `slot` 字典强制对齐 `kind`/`id`/`order`/`path`/`name`/`use` 原版结构（防止 `start_frame` 触发 HTTP 500 `KeyError`）；若解析层新增非标准写法映射，须以不破坏既有测试断言及 `sd_core/creator_markdown_check.py` 严格校验边界为前提。
+非规范剧本与多集整稿导入统一经 `scripts/whale_script_intake.py` 先原字节备存至 `输入/`（含独立 `人物小传-前言.md`）再按「规范化不改台词」原则转换；`whale_script_intake.py`、`whale_pipeline.py`、`whale_gatekeeper.py` (`audit_step_2`，必须锚定 `script_file` 而非与 `audit_step_3` 共用的 `path`) 与 `creator_views.parse_screenplay` 均须通过 `detect_document_role()` 拦截混入 `SHOT-xx` 或 `subject_definitions:`/`detailed_description:` 的非剧本文件，严禁兜底把分镜硬塞进 `剧本.md`。工作台每集状态与 `设定`/`分镜`/`提示词` 页签严格读取 `剧集/<EP>/` 下的对应文件（根目录 `视觉设定.md` 不触发分集设定状态）；`creator_views` 等正则修改后必须保留含中文字符的资产文件名、跑全量单元测试与真实样本解析校验；`whale_dashboard.py` 子进程检查/启动必须设置有限超时（15s）防阻塞。
+
+正式提交前严格检查显式画幅 `aspect`（`16:9` / `9:16` / `1:1`，缺失直接阻断，禁止静默套用默认竖屏）、整数帧数、24 fps 时长、总帧数和 1–9 个有序图像引用。9 个参考图槽位可自由开关并承载任意角色（含 3 人以上群像）、场景或道具，不写死“1=女/2=男/3=场景”；提示词按实际槽位声明 `<Subject N> ↔ <Picture N>`，所有未使用的槽位连接均须断开，缺节点不能生成悬空连接。Gate 1 拒绝空 `00_资产/` 目录；Gate 4、Gate 5 与运行器无条件核验每一镜 `ref_images` 均物理存在于 `00_资产/` 且可解码。用户通过 `--workflow` 或 `.whale_project.json` 的 `workflow` 指定工作流时，运行器按节点 `class_type` 原地回填，严禁私自新建工作流；非肉戏/动画镜头未显式设置 `lora_mystic_strength` 时默认归零 `0.0`。≥5 镜的分镜与批次严禁单一机位、单一景别或静态机位超过 60%。
 
 音频来源独立于后期效果：
 

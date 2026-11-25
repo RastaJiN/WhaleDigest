@@ -79,6 +79,7 @@ def ensure_project_registered(workspace: Path) -> None:
             capture_output=True,
             text=True,
             encoding="utf-8",
+            timeout=30,
         )
 
     if sd_json.exists() and pmode != "standard_drama":
@@ -95,7 +96,16 @@ def ensure_project_registered(workspace: Path) -> None:
 
 def _is_temp_test_dir(ws: Path) -> bool:
     import tempfile
-    parts = [p.lower() for p in ws.resolve().parts]
+    resolved = ws.resolve()
+    skill_root = Path(__file__).resolve().parent.parent
+    try:
+        resolved.relative_to(skill_root)
+        return True
+    except ValueError:
+        pass
+    if resolved.name.startswith("-"):
+        return True
+    parts = [p.lower() for p in resolved.parts]
     tmp_root = Path(tempfile.gettempdir()).resolve()
     try:
         ws.resolve().relative_to(tmp_root)
@@ -127,13 +137,13 @@ def auto_start_dashboard(project_dir, open_browser: bool = True):
     # 先查询当前工作台是否已在运行
     st = subprocess.run(
         [sys.executable, str(DASHBOARD_SERVER), "--workspace", str(ws), "--status"],
-        capture_output=True, text=True, encoding="utf-8",
+        capture_output=True, text=True, encoding="utf-8", timeout=15,
     )
     if st.returncode == 0 and '"running": true' in st.stdout:
         try:
             info = json.loads(st.stdout)
             url = info.get("url")
-            if url:
+            if url and info.get("brand") == "tunjing-baodian":
                 print(f"[工作台] 检测到剧本已就绪，复用在线工作台: {url}")
                 return url
         except Exception:
@@ -142,7 +152,7 @@ def auto_start_dashboard(project_dir, open_browser: bool = True):
     cmd = [sys.executable, str(DASHBOARD_SERVER), "--workspace", str(ws), "--port", "0", "--detach"]
     if open_browser:
         cmd.append("--open")
-    r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8")
+    r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", timeout=15)
     for line in r.stdout.splitlines():
         if line.startswith("Dashboard:"):
             url = line.split("Dashboard:", 1)[1].strip()
@@ -161,6 +171,7 @@ def main() -> int:
     parser.add_argument("--detach", action="store_true", help="后台运行")
     parser.add_argument("--status", action="store_true", help="查看当前工作台状态")
     parser.add_argument("--stop", action="store_true", help="停止后台工作台")
+    parser.add_argument("--restart", action="store_true", help="强制重启后台工作台")
     args = parser.parse_args()
 
     target = args.workspace_opt or args.project_dir_pos
@@ -180,6 +191,8 @@ def main() -> int:
         cmd.extend(["--port", str(args.port)])
         if args.detach:
             cmd.append("--detach")
+        if args.restart:
+            cmd.append("--restart")
         if args.open and not args.no_browser:
             cmd.append("--open")
 

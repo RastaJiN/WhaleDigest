@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-吞鲸宝典 v4.6.3 · 全剧集导演主动诊断与升维顾问引擎 (WhaleDigest v4.6.3 Proactive Director Advisor)
+吞鲸宝典 v4.7.0 · 全剧集导演主动诊断与升维顾问引擎 (WhaleDigest v4.7.0 Proactive Director Advisor)
 
 核心职责（专治“读了旧剧本就照本宣科、不主动提修改完善建议”的痛点）：
-当接手任何既有项目（如《交换游戏》EP01）或初稿剧本/分镜时，主动从五大维度进行导演级视听诊断，
+当接手任何既有项目（如既有连续剧 EP01）或初稿剧本/分镜时，主动从五大维度进行导演级视听诊断，
 并直接给出可一键执行的 `--chain` 升级方案与资产补齐清单：
 
 1. 【维度一：文戏肢体与暧昧挑逗饱和度诊断】
@@ -115,7 +115,7 @@ def diagnose_project(project_dir):
         suggestions.append({
             "dimension": "【维度 3 · 演员四维解剖情绪底色配对】",
             "issue": f"检测到 {len(dialogues)} 句台词，若不指定主动表演情绪底色，角色易呈木头面瘫。",
-            "action": "已为您自动匹配吞鲸 v4.6.3 四维面部肌肉指令（支持在 `--lines` 中用 `角色(情绪):台词` 显式锁定）：" + " | ".join(emo_recommendations[:5])
+            "action": "已为您自动匹配吞鲸 v4.7.0 四维面部肌肉指令（支持在 `--lines` 中用 `角色(情绪):台词` 显式锁定）：" + " | ".join(emo_recommendations[:5])
         })
 
     # ── 4. 空间图池单槽轮换诊断（专治 1 张场景图拍到底）──
@@ -130,7 +130,7 @@ def diagnose_project(project_dir):
         suggestions.append({
             "dimension": "【维度 4 · 空间参考图单一预警（防切特写穿帮/丢背景）】",
             "issue": sp_issue,
-            "action": "建议采用吞鲸 v4.6.3【空间图池单槽轮换法】，按需补齐多视角同风格场景底图（主全景、反打/立面视角、特写近景），每镜按需挂 1~9 张对应参考图。"
+            "action": "建议采用吞鲸 v4.7.0【空间图池单槽轮换法】，按需补齐多视角同风格场景底图（主全景、反打/立面视角、特写近景），每镜按需挂 1~9 张对应参考图。"
         })
 
     # ── 4b. 去AI味活人台词与声学特效诊断 ──
@@ -157,7 +157,7 @@ def diagnose_project(project_dir):
             suggestions.append({
                 "dimension": "【维度 5 · 固定三脚架机位占比过高（画面死气沉沉）】",
                 "issue": f"当前 {len(shots)} 镜中有 {static_cnt} 镜为 static 死机位（占比 {static_cnt/len(shots)*100:.0f}%）。",
-                "action": "建议重新通过吞鲸 v4.6.3 `whale_scene.py` Auto-DP 引擎编译，自动将死机位替换为 `push_tension`(慢推)、`arc_subtle`(微弧移)、`high_downward`(微俯)、`low_upward`(微仰)、`handheld_breath`(呼吸感手持)。"
+                "action": "建议重新通过吞鲸 v4.7.0 `whale_scene.py` Auto-DP 引擎编译，自动将死机位替换为 `push_tension`(慢推)、`arc_subtle`(微弧移)、`high_downward`(微俯)、`low_upward`(微仰)、`handheld_breath`(呼吸感手持)。"
             })
 
     # 生成推荐的 4.0 升维完整调度链
@@ -195,7 +195,7 @@ def diagnose_project(project_dir):
 
 def print_diagnosis(rep):
     print("=" * 80)
-    print("🐳 吞鲸宝典 v4.6.3 · 导演主动诊断与全剧集升维建议报告 (Proactive Director Advisor)")
+    print("🐳 吞鲸宝典 v4.7.0 · 导演主动诊断与全剧集升维建议报告 (Proactive Director Advisor)")
     print(f"诊断目标项目: {rep['project']}")
     print("=" * 80)
     if not rep["suggestions"]:
@@ -214,7 +214,7 @@ def print_diagnosis(rep):
 
 
 def main():
-    ap = argparse.ArgumentParser(description="吞鲸 v4.6.3 导演主动诊断与升维顾问引擎")
+    ap = argparse.ArgumentParser(description="吞鲸 v4.7.0 导演主动诊断与升维顾问引擎")
     ap.add_argument("project_dir", help="待诊断的项目目录")
     ap.add_argument("--json", action="store_true", help="输出 JSON 格式")
     args = ap.parse_args()

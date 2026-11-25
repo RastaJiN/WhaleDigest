@@ -18,6 +18,7 @@
 import os
 import sys
 import json
+from pathlib import Path
 import argparse
 import subprocess
 import re
@@ -28,7 +29,7 @@ sys.path.insert(0, BASE_DIR)
 
 def run(cmd, cwd=None):
     """执行子命令，返回 (stdout, returncode)"""
-    r = subprocess.run(cmd, shell=False, capture_output=True, text=True, encoding="utf-8", errors="replace", cwd=cwd or BASE_DIR, env={**os.environ, "PYTHONIOENCODING": "utf-8"})
+    r = subprocess.run(cmd, shell=False, capture_output=True, text=True, encoding="utf-8", errors="replace", cwd=cwd or BASE_DIR, env={**os.environ, "PYTHONIOENCODING": "utf-8"}, timeout=180)
     return r.stdout + r.stderr, r.returncode
 
 
@@ -75,6 +76,7 @@ def main():
     ap.add_argument("--lines", default="", help="台词（可选，格式 '镜号:女子A:台词' 竖线分隔）")
     ap.add_argument("--idea", default="", help="剧情核心张力描述")
     ap.add_argument("--wardrobe-mode", default="", choices=["", "nude_all", "dressed_all"], help="可选服装状态显式覆盖：nude_all / dressed_all")
+    ap.add_argument("--mode", default="", choices=["", "standard_drama", "adult_drama"], help="项目模式：standard_drama 正剧 / adult_drama 成人剧")
     ap.add_argument("--workflow", default="", help="指定 ComfyUI 工作流 JSON 路径（可选，写入 .whale_project.json 供渲染器原地回填）")
     ap.add_argument("--dry", action="store_true", help="只跑到分镜+提示词落地，不渲染")
     args = ap.parse_args()
@@ -118,6 +120,17 @@ def main():
     if not os.path.exists(script_file):
         print(f"[X] 找不到剧本.md: {script_file}")
         sys.exit(1)
+
+    try:
+        from whale_script_intake import detect_document_role
+        role = detect_document_role(Path(script_file).read_text(encoding="utf-8-sig"))
+        if role != "screenplay":
+            print(f"[X] 拒绝运行流水线：{script_file} 的内容实为【{role}】（分镜/视频提示词），不是剧本！请把分镜放入 分镜.md，勿把分镜硬塞进 剧本.md。")
+            sys.exit(1)
+    except SystemExit:
+        raise
+    except Exception:
+        pass
 
     # ── 画幅显式确认：接手项目时优先读取已有 .whale_project.json / 批量任务.json 的 aspect；仍未指定则直接停止要求确认 ──
     resolved_aspect = (args.aspect or "").strip()
@@ -186,8 +199,19 @@ def main():
         cmd.extend(["--lines", args.lines])
     if args.idea:
         cmd.extend(["--idea", args.idea])
-    if args.wardrobe_mode:
-        cmd.extend(["--wardrobe-mode", args.wardrobe_mode])
+    eff_mode = args.mode
+    if not eff_mode:
+        for cfg in (Path(project_dir) / "short-drama.json", Path(project_dir).parent.parent / "short-drama.json"):
+            if cfg.is_file():
+                try:
+                    eff_mode = json.loads(cfg.read_text(encoding="utf-8")).get("project_mode") or ""
+                    if eff_mode:
+                        break
+                except Exception:
+                    pass
+    w_mode = args.wardrobe_mode or ("dressed_all" if eff_mode == "standard_drama" else "")
+    if w_mode:
+        cmd.extend(["--wardrobe-mode", w_mode])
     out, rc = run(cmd)
     print(out[-2000:])
     if rc != 0:

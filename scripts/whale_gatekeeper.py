@@ -87,6 +87,13 @@ def audit_step_2(project_dir):
     
     with open(script_file, "r", encoding="utf-8") as f:
         content = f.read()
+    try:
+        from whale_script_intake import detect_document_role
+        doc_role = detect_document_role(content)
+        if doc_role != "screenplay":
+            return False, f"剧本门禁拦截：检测到 `剧本.md` 实为【{doc_role}】（分镜/提示词错位放入），禁止当成剧本放行。"
+    except Exception:
+        pass
         
     from pathlib import Path
     from whale_pose_choice import PLAN, reviewed_plan, authored_text
@@ -277,8 +284,50 @@ def audit_step_4(project_dir):
             issues.extend(v_errs)
             for w in v_warns:
                 print(f"[音色提醒] {w}")
+        # 推导项目模式（显式 standard_drama 绝对锁定不可反转；未显式声明时仅按物理存在资产与体位判断）
+        pmode = str(batch.get("project_mode") or "").strip().lower()
+        if not pmode:
+            for _cfg_name in ("short-drama.json", os.path.join("short-drama", "state.json")):
+                _cfg_p = os.path.join(project_dir, _cfg_name)
+                if os.path.isfile(_cfg_p):
+                    try:
+                        with open(_cfg_p, "r", encoding="utf-8") as _cf:
+                            _pm = str(json.load(_cf).get("project_mode") or "").strip().lower()
+                            if _pm:
+                                pmode = _pm
+                                break
+                    except Exception:
+                        pass
+        if not pmode:
+            from whale_pose_guard import load_poses_matrix
+            _mx = load_poses_matrix()
+            _adult_ids = {k for k, v in _mx.items() if isinstance(v, dict) and v.get("category") not in (None, "", "通用", "staging")}
+            _asset_root = os.path.join(project_dir, "00_资产")
+            _has_physical_nude = os.path.isdir(_asset_root) and any(
+                "_nude" in fn.lower() or "nude." in fn.lower()
+                for fn in os.listdir(_asset_root)
+                if os.path.isfile(os.path.join(_asset_root, fn))
+            )
+            _has_adult_pose = any(
+                any(tok.strip() in _adult_ids for tok in str(s.get("pose") or "").split("->"))
+                for s in batch.get("batch_shots", [])
+            )
+            pmode = "adult_drama" if (_has_physical_nude or _has_adult_pose) else "standard_drama"
+
         for index, shot in enumerate(batch["batch_shots"], 1):
             sid = shot.get("shot_id", shot.get("id", index))
+            if pmode == "standard_drama":
+                _bad_refs = [r for r in (shot.get("ref_images") or []) if "_nude" in str(r).lower() or "nude." in str(r).lower()]
+                if _bad_refs:
+                    issues.append(f"{sid}: 正剧模式 (standard_drama) 禁止绑定素身/裸露参考图 {_bad_refs}")
+                if float(shot.get("lora_mystic_strength") or 0.0) > 0:
+                    issues.append(f"{sid}: 正剧模式 (standard_drama) 禁止激活非零 MysticXXX 成人权重")
+            raw_pose = str(shot.get("pose") or "").strip()
+            if raw_pose:
+                for sub_p in [p.strip() for p in raw_pose.split("->") if p.strip()]:
+                    ok_p, p_errs, _ = validate_pose_entry(sub_p, pmode, tier=str(shot.get("tier") or ""), camera_motion=str(shot.get("camera_motion") or shot.get("camera") or ""))
+                    if not ok_p:
+                        issues.extend(f"{sid}: {pe}" for pe in p_errs)
             # 检查是否为节拍感知模式 (Beat: ...)
             is_beat = any(k in shot.get("prompt", "") for k in ["[Beat: Silence]", "[Beat: Transition]"])
         

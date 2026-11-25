@@ -128,9 +128,7 @@ def _is_loopback(host: str) -> bool:
 def load_project_tool(root: Path) -> ModuleType:
     """Dynamically load the suite's canonical project status implementation."""
     root = root.resolve()
-    installed_script = Path(__file__).resolve().with_name("project_tool.py")
-    repository_script = root / "skills/short-drama/scripts/project_tool.py"
-    script = installed_script if installed_script.is_file() else repository_script
+    script = Path(__file__).resolve().with_name("project_tool.py")
     spec = importlib.util.spec_from_file_location("dashboard_project_tool", script)
     if spec is None or spec.loader is None:
         raise RuntimeError(f"cannot load project tool: {script}")
@@ -1551,15 +1549,20 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 return
             if path == "/api/whale/shot":
                 sid = (query.get("shot_id") or [""])[0]
+                ep_hint = (query.get("ep") or [""])[0]
                 ws = Path(self.server.store.workspace)
                 task_file = ws / "批量任务.json"
-                assets_dir = ws / "00_资产"
                 poses_file = Path(__file__).resolve().parent.parent.parent / "references" / "whale_poses_matrix.json"
                 assets = []
-                if assets_dir.exists():
-                    for f in sorted(assets_dir.iterdir()):
-                        if f.is_file() and f.suffix.lower() in {".png", ".jpg", ".jpeg", ".webp"}:
-                            assets.append({"name": f.name, "rel": f"00_资产/{f.name}"})
+                seen_rels = set()
+                for cand_dir in [ws / "00_资产", ws / "assets", ws / "制作成果" / "assets", *sorted((ws / "剧集").glob("*/00_资产")), *sorted((ws / "剧集").glob("*/assets"))]:
+                    if cand_dir.is_dir():
+                        for f in sorted(cand_dir.rglob("*")):
+                            if f.is_file() and f.suffix.lower() in {".png", ".jpg", ".jpeg", ".webp"}:
+                                rel = str(f.resolve().relative_to(ws.resolve())).replace("\\", "/")
+                                if rel not in seen_rels:
+                                    seen_rels.add(rel)
+                                    assets.append({"name": f.name, "rel": rel})
                 poses = []
                 if poses_file.exists():
                     try:
@@ -1569,35 +1572,60 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                     except Exception:
                         pass
                 shot_data = {"shot_id": sid, "pose": "", "ref_images": []}
-                if task_file.exists():
+                batch_obj = {}
+                ep_cands = []
+                if ep_hint:
+                    ep_cands = [ws / "03_生成任务" / ep_hint / "批量任务.json", ws / "剧集" / ep_hint / "批量任务.json"]
+                batch_files = [*ep_cands, task_file, *sorted((ws / "03_生成任务").glob("*/批量任务.json")), *sorted((ws / "剧集").glob("*/批量任务.json"))]
+                for bf in batch_files:
+                    if not bf.is_file():
+                        continue
                     try:
-                        batch = json.loads(task_file.read_text(encoding="utf-8"))
-                        for idx, sh in enumerate(batch.get("shots") or []):
-                            if sh.get("shot_id") == sid or (not sid and idx == 0):
+                        batch_obj = json.loads(bf.read_text(encoding="utf-8"))
+                        shot_list = batch_obj.get("batch_shots") or batch_obj.get("shots") or []
+                        for idx, sh in enumerate(shot_list):
+                            cur_sid = sh.get("shot_id") or sh.get("id") or ""
+                            if cur_sid == sid or (not sid and idx == 0):
                                 shot_data = {
                                     "index": idx,
-                                    "shot_id": sh.get("shot_id") or sid,
+                                    "shot_id": cur_sid or sid,
                                     "pose": sh.get("pose") or "",
                                     "ref_images": [str(r).replace("\\", "/") for r in (sh.get("ref_images") or [])],
                                 }
                                 break
+                        if shot_data.get("pose") or shot_data.get("ref_images") or batch_obj.get("project_mode"):
+                            break
                     except Exception:
                         pass
-                pmode = "standard_drama"
-                if task_file.exists():
-                    try:
-                        pmode = json.loads(task_file.read_text(encoding="utf-8")).get("project_mode") or "standard_drama"
-                    except Exception:
-                        pass
-                else:
+                pmode = str(batch_obj.get("project_mode") or "").strip().lower()
+                if not pmode:
+                    for cfg in [ws / "short-drama.json", ws / "short-drama" / "state.json"]:
+                        if cfg.exists():
+                            try:
+                                _explicit = str(json.loads(cfg.read_text(encoding="utf-8")).get("project_mode") or "").strip().lower()
+                                if _explicit:
+                                    pmode = _explicit
+                                    break
+                            except Exception:
+                                pass
+                if not pmode:
                     for cfg in [ws / "short-drama.json", ws / "short-drama" / "state.json"]:
                         if cfg.exists():
                             cfg_txt = cfg.read_text(encoding="utf-8", errors="ignore")
                             if any(k in cfg_txt.lower() for k in ("adult_drama", '"nsfw"', '"erotic"', "肉戏", "成人剧")):
                                 pmode = "adult_drama"
                                 break
-                    if pmode == "standard_drama" and list((ws / "剧集").glob("*/体位规划.json")):
+                    if not pmode and list((ws / "剧集").glob("*/体位规划.json")):
                         pmode = "adult_drama"
+                    if not pmode and any("_nude" in a.get("name", "").lower() or "nude." in a.get("name", "").lower() for a in assets):
+                        pmode = "adult_drama"
+                    if not pmode:
+                        all_shots = batch_obj.get("batch_shots") or batch_obj.get("shots") or []
+                        adult_pose_ids = {p["id"] for p in poses if p.get("category") not in (None, "", "通用", "staging")}
+                        if any(any(tok in adult_pose_ids for tok in str(sh.get("pose") or "").split("->")) for sh in all_shots):
+                            pmode = "adult_drama"
+                    if not pmode:
+                        pmode = "standard_drama"
                 is_adult = pmode in {"adult_drama", "erotic", "nsfw", "adult"}
                 self._json(HTTPStatus.OK, {"ok": True, "project_mode": pmode, "is_adult": is_adult, "shot": shot_data, "assets": assets, "poses": poses if is_adult else []})
                 return
@@ -1720,26 +1748,47 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 length = int(self.headers.get("Content-Length") or 0)
                 payload = json.loads(self.rfile.read(length).decode("utf-8"))
                 ws = Path(self.server.store.workspace)
-                task_file = ws / "批量任务.json"
-                if not task_file.exists():
+                sid = payload.get("shot_id") or ""
+                ep_hint = payload.get("ep") or ""
+                ep_cands = []
+                if ep_hint:
+                    ep_cands = [ws / "03_生成任务" / ep_hint / "批量任务.json", ws / "剧集" / ep_hint / "批量任务.json"]
+                batch_files = [*ep_cands, ws / "批量任务.json", *sorted((ws / "03_生成任务").glob("*/批量任务.json")), *sorted((ws / "剧集").glob("*/批量任务.json"))]
+                seen_bf = set()
+                target_file = None
+                target_batch = None
+                any_exists = False
+                for bf in batch_files:
+                    if not bf.is_file():
+                        continue
+                    rbf = str(bf.resolve())
+                    if rbf in seen_bf:
+                        continue
+                    seen_bf.add(rbf)
+                    any_exists = True
+                    try:
+                        bobj = json.loads(bf.read_text(encoding="utf-8"))
+                    except Exception:
+                        continue
+                    for sh in (bobj.get("batch_shots") or bobj.get("shots") or []):
+                        if (sh.get("shot_id") or sh.get("id")) == sid:
+                            if "pose" in payload:
+                                sh["pose"] = payload["pose"]
+                            if "ref_images" in payload and isinstance(payload["ref_images"], list):
+                                sh["ref_images"] = payload["ref_images"]
+                            target_file = bf
+                            target_batch = bobj
+                            break
+                    if target_file is not None:
+                        break
+                if not any_exists:
                     self._json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": "未找到 批量任务.json"})
                     return
-                batch = json.loads(task_file.read_text(encoding="utf-8"))
-                sid = payload.get("shot_id") or ""
-                updated = False
-                for sh in batch.get("shots") or []:
-                    if sh.get("shot_id") == sid:
-                        if "pose" in payload:
-                            sh["pose"] = payload["pose"]
-                        if "ref_images" in payload and isinstance(payload["ref_images"], list):
-                            sh["ref_images"] = payload["ref_images"]
-                        updated = True
-                        break
-                if not updated:
+                if target_file is None or target_batch is None:
                     self._json(HTTPStatus.NOT_FOUND, {"ok": False, "error": f"未找到镜头 {sid}"})
                     return
-                task_file.write_text(json.dumps(batch, ensure_ascii=False, indent=2), encoding="utf-8")
-                self._json(HTTPStatus.OK, {"ok": True})
+                target_file.write_text(json.dumps(target_batch, ensure_ascii=False, indent=2), encoding="utf-8")
+                self._json(HTTPStatus.OK, {"ok": True, "file": str(target_file.relative_to(ws)).replace("\\", "/")})
             except Exception as e:
                 self._json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": str(e)})
             return
@@ -2093,6 +2142,7 @@ def main(argv: list[str] | None = None) -> int:
         if holding and session is not None:
             status["url"] = session["url"]
             status["pid"] = session["pid"]
+            status["brand"] = session.get("brand")
             recorded = session.get("workspace")
             if not mine:
                 # The record is live but describes a different workspace.
@@ -2111,7 +2161,7 @@ def main(argv: list[str] | None = None) -> int:
         and session_matches(existing, workspace)
         and session_is_live(session_path)
     ):
-        if args.restart:
+        if args.restart or existing.get("brand") != "tunjing-baodian":
             stop_session(session_path)
         else:
             url = str(existing["url"])
@@ -2195,6 +2245,7 @@ def main(argv: list[str] | None = None) -> int:
                     session_path,
                     {
                         "schema_version": SESSION_SCHEMA,
+                        "brand": "tunjing-baodian",
                         "workspace": str(workspace),
                         "fingerprint": server.workspace_fingerprint,
                         "host": host,

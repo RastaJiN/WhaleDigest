@@ -1,7 +1,7 @@
-# MiniMax H3 官方提示词规范 × 吞鲸实战融合手册 (WhaleDigest v4.6.3)
+# MiniMax H3 官方提示词规范 × 吞鲸实战融合手册 (WhaleDigest v4.7.0)
 
 > **官方真源锁定**：本手册直接融合 `MiniMax-AI/MiniMax-H3/.agents/skills/h3-prompt-writing`（锁定 commit `199b7d0e1fd95e7b3eafa8c15eca692534142427`），完整官方原件保存在 `references/h3-official/`（`SKILL.md`、`ref-en.txt`、`base-en.txt`）。
-> **核心原则**：任何大模型（Claude / GPT / Gemini / DeepSeek）写 H3 提示词时，**禁止凭感觉手写格式**——必须严格按本手册规则，优先通过统一编译器 `scripts/whale_h3_prompt.py` (`compile_h3_ref2va_prompt`) + 全集音色账本 (`VoiceRegistry` / `voice_bible.json`) 生成，再过 `whale_compiler.py` 与 `whale_gatekeeper.py` 强校验。
+> **核心原则**：任何大模型（Claude / GPT / Gemini / DeepSeek）写 H3 提示词时，**禁止凭感觉手写格式**——必须严格按本手册规则，优先通过统一编译器 `scripts/whale_core.py` (`single_shot_prompt`) / `scripts/whale_h3_prompt.py` (`compile_h3_ref2va_prompt` / `compile_h3_base_prompt` / `compile_h3_container_prompt`) + 全集音色账本 (`VoiceRegistry` / `voice_bible.json`) 生成，再过 `whale_compiler.py` 与 `whale_gatekeeper.py` 强校验。
 
 ---
 
@@ -9,9 +9,11 @@
 
 | 层面 | 权威依据 | 硬规则 |
 |---|---|---|
-| **顶层六段与顺序** | 官方 `ref-en.txt` | 严格固定顺序且各仅一次：`subject_definitions` → `summary` → `retention_analysis` → `detailed_description` → `overall_soundscape` → `non_diegetic_music`。前面禁止任何前言/标题/备注，禁止未知顶层字段。 |
-| **保留强度枚举** | 官方 `ref-en.txt` §4 | 视觉素材用 `fully_preserved` / `partially_preserved` / `attribute_transfer` / `weak_reference`；音频素材用 `fully_copy` / `partially_copy` / `reference` / `weak_reference`。 |
-| **槽位编号与角色解耦** | 官方 `ref-en.txt` §2 + 吞鲸 v4.6.3 | `ref_images` 支持 **1–9 张**自由开关；**绝不写死 1=女 / 2=男 / 3=场景**。3 人同框、群像、单人反打、道具特写放第几槽，提示词就写 `<Picture N>`，并定义为 `<Subject M>`。`<Subject N>` 是视觉主体，`(Sx)` 是全局说话人 ID，**二者不必相等**（例如 `<Subject 3> (S1)` 完全合法）。 |
+| **三种模式与顶层结构** | 官方 `ref-en.txt` / `base-en.txt` | **Ref2VA 六段式**严格固定顺序且各仅一次：`subject_definitions` → `summary` → `retention_analysis` → `detailed_description` → `overall_soundscape` → `non_diegetic_music`；**Base/首帧/首尾帧三段式**用 `integrated_multimodal_description` → `overall_soundscape` → `non_diegetic_music`；**多镜容器 (4–15s)** 在 `subject_definitions` 对齐 `<Picture N>` 起始秒并在 `detailed_description` 用 `[Shot N] At 00:xx.xxx` 分段。前面禁止任何前言/标题/备注。 |
+| **保留强度与动作/姿态隔离** | 官方 `ref-en.txt` §4 + 吞鲸 v4.7.0 | 视觉素材用 `fully_preserved` / `partially_preserved` / `attribute_transfer` / `weak_reference`；音频用 `fully_copy` / `partially_copy` / `reference` / `weak_reference`；`retention_analysis` 须标注 `(appears in [Shot N])`。动作注入须按体位姿势分支：坐/跨/跪/仰卧体位禁止混入站姿脚部重心词（如 `weight shift between the feet`），`Camera:` 仅在单行出现一次；实拍模式启 `DE_OIL` 压油，3D/2D/水墨制作形态卡关闭 `35mm` 与皮肤摄影词。 |
+| **动作真源与全肯定语法** | 吞鲸 v4.7.0 | `references/whale_poses_matrix.json` 全部条目须带非空 `category`、全肯定物理描写（零 `no/not/never/without/zero`、零网站人物占位名 `Woman A/Man A`、英文段零汉字）；正剧仅放行通用调度原语（`category="staging"`/`"通用"`），其余动作一律由 `whale_pose_guard.py` 拦截。 |
+| **槽位编号与角色解耦** | 官方 `ref-en.txt` §2 + 吞鲸 v4.7.0 | `ref_images` 支持 **1–9 张**自由开关；**绝不写死 1=女 / 2=男 / 3=场景**。3 人同框、群像、单人反打、道具特写放第几槽，提示词就写 `<Picture N>`，并定义为 `<Subject M>`。`<Subject N>` 是视觉主体，`(Sx)` 是全局说话人 ID，**二者不必相等**（例如 `<Subject 3> (S1)` 完全合法）。 |
+| **音色锚点与任务源正则兼容** | 吞鲸 v4.7.0 | 当将 `VoiceRegistry` 音色指纹拼入 `SPEECH:` 行时，必须置于 `only <Subject N> (Sx) says:` 之前（如 `From 1.10s to 4.47s, in <timbre>, only <Subject 2> (S2) says: <d>[Chinese]...</d>`），严禁插在 `(Sx)` 与 `says:` 之间，确保 `whale_task_source.py` 与 `whale_shot_facts.py` 对说话人和逐字台词的严格锚定不被破坏。 |
 | **CFG=1.0 正向全肯定** | 吞鲸实片经验 | `Node 328 = ConditioningZeroOut` 导致负向清零，因此正向提示词**严禁出现否定词配衣物/字幕词根**（`no garment / no shirt / no underwear / no subtitles / Do not generate subtitles`），必须 100% 写正面可见物理状态。 |
 | **语言分工** | 官方 `ref-en.txt` + 吞鲸 | 六段正文全英文；**只有 `<d>[Chinese]逐字台词</d>` 内与画内真实招牌文字保留中文**。 |
 

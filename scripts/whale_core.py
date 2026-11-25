@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-吞鲸宝典 v4.6.3 · 全剧集导演调度与提示词装配共享核心 (WhaleDigest Assembly Core v4.6.3)
+吞鲸宝典 v4.7.0 · 全剧集导演调度与提示词装配共享核心 (WhaleDigest Assembly Core v4.7.0)
 
 核心特性：
 1. R1~R12 全肯定无否定式语法（Positive-Only Grammar）：
@@ -214,7 +214,7 @@ OFFICIAL_CUT_PHRASES = (
     "the shot switches to",
 )
 
-# 吞鲸 v4.6.3 · 黄金情绪反应配方（1个明确情绪点名 + 2处当前景别可见物理泄露 + 1.5s内落定保持）
+# 吞鲸 v4.7.0 · 黄金情绪反应配方（1个明确情绪点名 + 2处当前景别可见物理泄露 + 1.5s内落定保持）
 EMOTION_MUSCLE_CUES = {
     # ── 12 大主动表演情绪底色 ──
     "anger_rage":       "simmering with furious rage; brows drawn sharply together with tense glabella and jaw muscles bulging as nostrils flare, settling into a lethal unblinking glare within 1.5 seconds",
@@ -289,6 +289,31 @@ EMOTION_BODY_ACTIONS_SUPINE = {
     "forbearance":  "jaw locking as the throat bobs once, palms pressing flat into the surface beneath her, shoulders held taut",
     "default":      "weight settling into the support surface, shoulders relaxing into the pad, hands resting naturally against the surface, chest rising with a measured breath",
 }
+
+
+EMOTION_BODY_ACTIONS_INTIMATE = {
+    "submission":   "chin tucking slightly as shoulders yield inward and hands press steadily into the partner or support surface",
+    "inhibition":   "spine stiffening momentarily on a held breath with fingertips tightening against skin or sheets",
+    "provocation":  "chin tilting slightly to hold direct eye contact while chest lifts on a slow deliberate inhale",
+    "surge":        "torso driving forward with rhythmic pelvic engagement and fingertips gripping firmly for leverage",
+    "ecstasy":      "spine arching smoothly as breathing deepens, shoulders trembling slightly and fingers tightening in continuous rhythm",
+    "aftermath":    "shoulders softening as tension eases, posture settling steadily with a slow silent exhale",
+    "forbearance":  "jaw clenching briefly while hands stay firmly braced against the partner or support surface",
+    "default":      "torso and hips moving in steady synchronized cadence while hands maintain firm supportive contact and chest rises with measured breathing",
+}
+
+
+def _clean_legacy_actor_refs(text, tier="A_two_shot"):
+    if not text:
+        return text
+    out = str(text)
+    f_ref = "she" if tier == "B_solo_male" else "<Subject 1>"
+    m_ref = "he" if tier == "B_solo_female" else "<Subject 2>"
+    out = re.sub(r"\bWoman\s+[AB]'s\b", "her", out)
+    out = re.sub(r"\bMan\s+[AB]'s\b", "his", out)
+    out = re.sub(r"\bWoman\s+[AB]\b", f_ref, out)
+    out = re.sub(r"\bMan\s+[AB]\b", m_ref, out)
+    return out
 
 EMOTION_MUSCLE_CUES_SUPINE = {
     "submission":   "yielding in quiet submission; eyelashes trembling with gaze angled sideways across the support surface and lower lip pressed lightly between teeth, settling within 1.5 seconds",
@@ -524,10 +549,10 @@ def wrap_action_arc(action_text):
     if not t:
         return t
     # 已有起点语义则不再重复包装
-    if "From 0.00s" in t or "starting" in t.lower():
+    if "From 0.00s" in t or "At 0.00s" in t or "starting" in t.lower() or "spatial lock" in t.lower():
         return t
-    return (f"Starting from a held starting posture, {t}; "
-            f"the movement settles into a clear held end-state with weight fully transferred and hands finding their finish position")
+    return (f"Starting from a held starting posture, {t.rstrip('. ;')}; "
+            f"the movement settles cleanly with continuous anatomical contact and stable balance")
 
 
 def build_soundscape_en(scene_name, is_staging=False, nude_audio=False):
@@ -665,7 +690,7 @@ def build_fullref_header(
     nudity=False,
 ):
     """
-    吞鲸 v4.6.3 权威头部装配：
+    吞鲸 v4.7.0 权威头部装配：
     - 100% 遵循 R1~R12 全肯定语法（零否定词）
     - 支持单人正反打/空镜槽位物理隔离描述
     - 支持特写/微距镜头头部自动瘦身裁剪（防特写被房间全景描述拉宽成中景）
@@ -750,16 +775,16 @@ def build_fullref_header(
     # 4. retention_analysis
     parts.append("retention_analysis:")
     if tier == "B_solo_female":
-        parts.append("<Subject 1>: fully_preserved - facial identity, exact hairstyle, body anatomy, and skin texture are strictly locked to <Picture 1>." + (NUDITY_RETENTION_F if (nudity and not is_undress) else ""))
+        parts.append("<Subject 1> (appears in [Shot 1]): fully_preserved - facial identity, exact hairstyle, body anatomy, and skin texture are strictly locked to <Picture 1>." + (NUDITY_RETENTION_F if (nudity and not is_undress) else ""))
     elif tier == "B_solo_male":
-        parts.append("<Subject 2>: fully_preserved - masculine facial identity, physique, and skin tone are strictly locked to <Picture 2>." + (NUDITY_RETENTION_M if (nudity and not is_undress) else ""))
+        parts.append("<Subject 2> (appears in [Shot 1]): fully_preserved - masculine facial identity, physique, and skin tone are strictly locked to <Picture 2>." + (NUDITY_RETENTION_M if (nudity and not is_undress) else ""))
     elif tier != "C_empty_cut":
         if is_undress:
-            parts.append("<Subject 1>: partially_preserved - facial features, hairstyle, and body anatomy fully preserved from <Picture 1>; clothing transitions smoothly.")
+            parts.append("<Subject 1> (appears in [Shot 1]): partially_preserved - facial features, hairstyle, and body anatomy fully preserved from <Picture 1>; clothing transitions smoothly.")
         else:
-            parts.append("<Subject 1>: fully_preserved - facial identity, exact hairstyle, body anatomy, and skin texture are strictly locked to <Picture 1>." + (NUDITY_RETENTION_F if nudity else ""))
-        parts.append("<Subject 2>: fully_preserved - masculine facial identity, physique, and skin tone are strictly locked to <Picture 2>." + (NUDITY_RETENTION_M if (nudity and not is_undress) else ""))
-    parts.append(f"<Subject 3>: fully_preserved for surface texture and lighting direction from <Picture 3>; weak_reference for exact camera framing.")
+            parts.append("<Subject 1> (appears in [Shot 1]): fully_preserved - facial identity, exact hairstyle, body anatomy, and skin texture are strictly locked to <Picture 1>." + (NUDITY_RETENTION_F if nudity else ""))
+        parts.append("<Subject 2> (appears in [Shot 1]): fully_preserved - masculine facial identity, physique, and skin tone are strictly locked to <Picture 2>." + (NUDITY_RETENTION_M if (nudity and not is_undress) else ""))
+    parts.append("<Subject 3> (appears in [Shot 1]): partially_preserved - environment texture and lighting direction from <Picture 3>.")
     if prop_ref:
         parts.append("<Subject 4>: fully_preserved - exact object geometry, surface markings, and material texture are strictly locked to <Picture 4>.")
     parts.append("")
@@ -875,7 +900,7 @@ def resolve_speaker(speaker_raw):
     raise ValueError(f"未识别说话人 {speaker_raw!r}；请指定女子A/S1 或男子A/S2")
 
 
-def _speech_lock(actor, words, dur, tier, voiceover):
+def _speech_lock(actor, words, dur, tier, voiceover, voice_timbre=""):
     start = min(DIALOGUE_LEAD_SECONDS, max(0.0, dur - DIALOGUE_TAIL_SECONDS))
     stop = max(start, dur - DIALOGUE_TAIL_SECONDS)
     mode = " in an off-screen voiceover" if voiceover else ""
@@ -884,20 +909,22 @@ def _speech_lock(actor, words, dur, tier, voiceover):
     if voiceover and (tier == "C_empty_cut" or (solo is not None and actor != solo)):
         # Name the audio role, not a visual Subject missing from this crop.
         subject = f"the narrator (voice S{actor})"
+    timbre_clause = f"in {voice_timbre}, " if voice_timbre else ""
     if voiceover:
         reaction = " All visible lips remain closed." if tier != "C_empty_cut" else ""
     elif tier.startswith("A_two_shot"):
         reaction = f" <Subject {3 - actor}> listens silently with lips closed."
     else:
         reaction = ""
-    return (f"\nSPEECH: From {start:.2f}s to {stop:.2f}s, only {subject} says{mode}: "
+    return (f"\nSPEECH: From {start:.2f}s to {stop:.2f}s, {timbre_clause}only {subject} says{mode}: "
             f"<d>[Chinese]{words}</d>.{reaction}")
 
 
 def build_shot_description(shot, index, total_shots, dur, size_desc, cam_desc,
                            lines="", speaker="女子A", scene="hotel suite",
                            emotion="default", voiceover=False, hold_last_second=False,
-                           female_screen_side=None, tier="A_two_shot", nudity=False):
+                           female_screen_side=None, tier="A_two_shot", nudity=False,
+                           voice_timbre="", apply_de_oil=True, style_label="Live-action cinematic"):
     """
     编译单镜画面与独立 SPEECH 行（100% 对齐 R1~R12 全肯定语法 + 正反打视线互补锁 + 先静后动三段式运镜）
     """
@@ -990,22 +1017,22 @@ def build_shot_description(shot, index, total_shots, dur, size_desc, cam_desc,
         if note.get('to_face'): cam_desc += ', progressing from the hands to the face'
     segmented_cam = format_segmented_camera_en(cam_desc, dur, shot_size=shot.get("size", ""))
 
-    # 唯一 Camera: 指令行 + 分号 (;) 黄金分割律
+    # 唯一 Camera: 指令行（含实拍去油光质感锁，绝不在 [Shot 1] 行重复复读机位分段词！）
+    de_oil_tail = f", {DE_OIL}" if apply_de_oil else ""
     if index == 0:
-        shot_prefix = f"Camera: {size_desc}, {segmented_cam}.\n[Shot 1] Live-action cinematic, {size_desc}, {segmented_cam}; "
+        shot_prefix = f"Camera: {size_desc}, {segmented_cam}{de_oil_tail}.\n[Shot 1] {style_label}; "
         if first_p == "env_establish":
             at_str = "From 0.00s, within <Subject 3>: "
-        elif first_p in PROP_IDS or first_p in ("srs_female", "outro_solo"):
+        elif first_p in PROP_IDS or first_p in ("srs_female", "outro_solo") or tier == "B_solo_female":
             at_str = "From 0.00s, <Subject 1> within <Subject 3>: "
-        elif first_p == "srs_male":
+        elif first_p == "srs_male" or tier == "B_solo_male":
             at_str = "From 0.00s, <Subject 2> within <Subject 3>: "
         else:
             at_str = "From 0.00s, <Subject 1> and <Subject 2> in <Subject 3>: "
     else:
         cut_phrase = OFFICIAL_CUT_PHRASES[index % len(OFFICIAL_CUT_PHRASES)]
-        t0_val = shot.get("t0", round(index * dur, 2))
-        shot_prefix = f"Camera: {size_desc}, {segmented_cam}.\n[Shot 1] At 0.00s, {cut_phrase} {size_desc}, {segmented_cam}; "
-        at_str = "At 0.00s, actively in motion, inheriting kinetic momentum from the previous shot: "
+        shot_prefix = f"Camera: {size_desc}, {segmented_cam}{de_oil_tail}.\n[Shot 1] At 0.00s, {cut_phrase} {size_desc}; "
+        at_str = "At 0.00s, actively in motion: "
 
     if plan:
         # A cut changes the image, not the previous scene's momentum or the cast's marks.
@@ -1013,6 +1040,7 @@ def build_shot_description(shot, index, total_shots, dur, size_desc, cam_desc,
     raw_action = shot.get("text_en") or shot.get("text") or ""
     if plan and (plan['action'] or first_p in DIALOGUE):
         raw_action = plan['action'] or neutral_action(first_p)
+    raw_action = _clean_legacy_actor_refs(raw_action, tier=tier)
     adapted_action = sanitize_positive_only(with_scene_surface(raw_action, scene))
     # 起点-变化-终点动作链（治站桩：动作必须有头有尾，不是没头没尾的体位拍）
     if not plan or not (plan["action"] or first_p in DIALOGUE):
@@ -1020,21 +1048,29 @@ def build_shot_description(shot, index, total_shots, dur, size_desc, cam_desc,
 
     emo_key_body = resolve_emotion_key(emotion, lines, fallback="default")
     emo_cue_extra = ""
-    # 仅真实仰卧体位走仰卧身体动作表；站立肉戏与单人正反打不再机械套用 "against the support surface"
+    # 按真实身体姿态分流情绪动作表（杜绝往女上位/后入/口交里乱塞“站姿双脚重心转移”）
     _supine_ctx = first_p in SUPINE_POSES
-    _body_tbl = EMOTION_BODY_ACTIONS_SUPINE if _supine_ctx else EMOTION_BODY_ACTIONS
-    _face_tbl = EMOTION_MUSCLE_CUES_SUPINE if _supine_ctx else EMOTION_MUSCLE_CUES
+    _intimate_ctx = first_p in (STACKED_POSES | REAR_POSES | ORAL_POSES)
+    if _supine_ctx:
+        _body_tbl = EMOTION_BODY_ACTIONS_SUPINE
+        _face_tbl = EMOTION_MUSCLE_CUES_SUPINE
+    elif _intimate_ctx:
+        _body_tbl = EMOTION_BODY_ACTIONS_INTIMATE
+        _face_tbl = EMOTION_MUSCLE_CUES
+    else:
+        _body_tbl = EMOTION_BODY_ACTIONS
+        _face_tbl = EMOTION_MUSCLE_CUES
     body_action = _body_tbl.get(emo_key_body, _body_tbl["default"])
     facial_cue = _face_tbl.get(emo_key_body, _face_tbl["default"])
     # 面部表情 + 身体决断动作双通道（治站桩木讷：脸和身一起演，不只脸动）
     # 有台词无台词都要加——有台词时角色边说话边演，更需要身体动作
     if shot.get("size") in ("face", "cu") or first_p in ("srs_male", "srs_female", "blocking_2s", "outro_solo"):
-        emo_cue_extra = (f" Facial performance: {facial_cue} "
-                         f"Body action: {body_action}.")
+        emo_cue_extra = (f" Facial performance: {facial_cue.rstrip('.')}. "
+                         f"Body action: {body_action.rstrip('.')}.")
     # 肉戏高潮/泄洪镜也强制加身体表演（不是你之前要的"肉戏要表演、要反馈，不是单纯抽插"）
     elif first_p in FINISH_IDS or is_penetration:
-        emo_cue_extra = (f" Facial performance: {facial_cue} "
-                         f"Body action: {body_action}.")
+        emo_cue_extra = (f" Facial performance: {facial_cue.rstrip('.')}. "
+                         f"Body action: {body_action.rstrip('.')}.")
     if plan and (plan['action'] or first_p in DIALOGUE):
         # Generic body beats may stand a seated actor up or occupy the hand holding a prop.
         emo_cue_extra = ''
@@ -1055,7 +1091,7 @@ def build_shot_description(shot, index, total_shots, dur, size_desc, cam_desc,
         body_text += " " + stance_lock
 
     if is_penetration and not shot.get("motion_override") and shot.get("size") not in ("face", "cu"):
-        body_text += " Sealed pelvic junction: fully seated with the lower abdomen pressed flush against her, the contact line staying continuous and physically cohesive with natural soft-tissue compression and elastic recoil."
+        body_text += " Sealed pelvic junction: fully seated with the lower abdomen pressed flush against her, the pelvic contact seam staying continuous and physically cohesive with natural soft-tissue compression and elastic recoil."
 
     tail = ""
     if hold_last_second or first_p == "outro_solo":
@@ -1066,7 +1102,7 @@ def build_shot_description(shot, index, total_shots, dur, size_desc, cam_desc,
     # 独立成段的 SPEECH: 行（扣除开口前 1.1s 延迟与尾段 0.7s 反应余韵）
     speech_line = ""
     if lines:
-        speech_line = _speech_lock(actor, lines, dur, tier, effective_vo)
+        speech_line = _speech_lock(actor, lines, dur, tier, effective_vo, voice_timbre=voice_timbre)
 
     if shot.get('action_steps'):
         body_text = 'At 0.00s: ' + with_scene_surface(shot['text_en'], scene)
@@ -1075,7 +1111,8 @@ def build_shot_description(shot, index, total_shots, dur, size_desc, cam_desc,
         body_text = 'At 0.00s: ' + note['visual']
         tail = ''
     # Visual sanitization must never rewrite a character’s words.
-    return sanitize_positive_only(f"{shot_prefix}{body_text}{tail}") + speech_line
+    final_visual = re.sub(r"\.\s*;", ".", sanitize_positive_only(f"{shot_prefix}{body_text}{tail}"))
+    return final_visual + speech_line
 
 
 def single_shot_prompt(shot, index, total_shots, dur, size_desc, cam_desc,
@@ -1084,9 +1121,10 @@ def single_shot_prompt(shot, index, total_shots, dur, size_desc, cam_desc,
                        male_desc="mature man anchored in <Picture 2>, preserving his exact masculine facial identity, hairstyle, skin tone, and muscular build",
                        scene_props="", prop_ref="", prop_desc="key physical item anchored in <Picture 4>, preserving its exact printed markings, shape, and surface texture",
                        emotion="default", voiceover=False, hold_last_second=False,
-                       tier="A_two_shot", has_audio_refs=False, aspect="9:16", nudity=False):
+                       tier="A_two_shot", has_audio_refs=False, aspect="9:16", nudity=False,
+                       voice_timbre="", apply_de_oil=True, style_label="Live-action cinematic"):
     """
-    吞鲸 v4.6.3 对外唯一装配接口：
+    吞鲸 v4.7.0 对外唯一装配接口：
     - 输出纯净正向送模提示词（不含 === NEGATIVE ===，杜绝正向反噬）
     - 100% 兼容 R1~R12 全肯定语法与吞鲸六段式结构锚点
     """
@@ -1131,7 +1169,8 @@ def single_shot_prompt(shot, index, total_shots, dur, size_desc, cam_desc,
         shot, index, total_shots, dur, size_desc, cam_desc,
         lines=lines, speaker=speaker, scene=scene,
         emotion=emotion, voiceover=voiceover, hold_last_second=hold_last_second,
-        female_screen_side=female_screen_side, tier=tier, nudity=nudity
+        female_screen_side=female_screen_side, tier=tier, nudity=nudity,
+        voice_timbre=voice_timbre, apply_de_oil=apply_de_oil, style_label=style_label
     )
 
     parts = _official_ref2va_header(header)

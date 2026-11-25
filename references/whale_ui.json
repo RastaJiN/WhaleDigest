@@ -4493,14 +4493,14 @@
           "version": "7.8"
         },
         "widget_ue_connectable": {},
-        "guhaiImageValue": "IMG-LINZHOU-NUDE.png"
+        "guhaiImageValue": "male_master.png"
       },
       "widgets_values": [
         "male_master.png",
         "image"
       ],
       "widgets_values_named": {
-        "image": "IMG-LINZHOU-NUDE.png",
+        "image": "male_master.png",
         "upload": "image"
       },
       "color": "#233",
@@ -5525,14 +5525,14 @@
           "version": "7.8"
         },
         "widget_ue_connectable": {},
-        "guhaiImageValue": "IMG-SUWAN-NUDE.png"
+        "guhaiImageValue": "female_master.png"
       },
       "widgets_values": [
         "female_master.png",
         "image"
       ],
       "widgets_values_named": {
-        "image": "IMG-SUWAN-NUDE.png",
+        "image": "female_master.png",
         "upload": "image"
       },
       "color": "#2a363b",

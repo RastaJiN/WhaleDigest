@@ -365,7 +365,7 @@ def write_signed_audit_report(project_dir, report):
     m = report.get("metrics", {})
 
     lines = [
-        "# 吞鲸工作室 v4.6.3 · 生成前终审报告 (Machine-Signed Pre-Render Audit)",
+        "# 吞鲸工作室 v4.7.0 · 生成前终审报告 (Machine-Signed Pre-Render Audit)",
         f"- 审计时间: {datetime.datetime.now(datetime.timezone.utc).isoformat()}",
         f"- 任务来源绝对路径: `{task_path}`",
         f"- 批量任务 SHA-256 指纹: `{sha}`",

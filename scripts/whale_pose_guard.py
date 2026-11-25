@@ -34,7 +34,21 @@ def suggest_safe_pose(pose_id: str):
     return None
 
 
-def validate_pose_entry(pose_id: str, project_mode: str = "standard_drama"):
+SOLO_TIERS = {"B_solo_male", "B_solo_female"}
+TWO_BODY_POSES = {
+    "stand_doggy_wall", "stand_bend_doggy", "stand_face_hug", "face_insert",
+    "bedside_stand", "carry_insert", "doggy", "table_doggy", "missionary",
+    "missionary_legup", "cowgirl", "cowgirl_upright", "reverse_cowgirl",
+    "squat_cowgirl", "mirror_ear_whisper", "mirror_whisper", "anal",
+}
+
+
+def validate_pose_entry(
+    pose_id: str,
+    project_mode: str = "standard_drama",
+    tier: str = "",
+    camera_motion: str = "",
+):
     """
     校验体位是否在 94 条真源内；正剧模式下禁止出现肉戏体位。
     返回 (ok: bool, errors: list[str], warnings: list[str])
@@ -45,7 +59,15 @@ def validate_pose_entry(pose_id: str, project_mode: str = "standard_drama"):
 
     if not is_adult:
         if pid:
-            errors.append(f"正剧模式 ({project_mode}) 禁止挂载肉戏体位: {pid}")
+            matrix = load_poses_matrix()
+            p_cat = (matrix.get(pid) or {}).get("category") if isinstance(matrix.get(pid), dict) else ""
+            is_staging_prim = p_cat in ("staging", "通用")
+            if not is_staging_prim:
+                errors.append(f"正剧模式 ({project_mode}) 禁止挂载肉戏体位: {pid}")
+        if tier in SOLO_TIERS and (camera_motion or "").strip().lower() in {"ots_depth", "ots"}:
+            errors.append(
+                f"单人镜 (tier={tier}) 禁配过肩机位 '{camera_motion}'，易裂出同性双人；请改用 static_front/push_tension/high_downward"
+            )
         return (len(errors) == 0, errors, warnings)
 
     if not pid:
@@ -60,4 +82,13 @@ def validate_pose_entry(pose_id: str, project_mode: str = "standard_drama"):
     if matrix and pid not in matrix:
         errors.append(f"体位 '{pid}' 不在 94 条真源 (whale_poses_matrix.json) 中，禁止模型自造体位")
 
+    if tier in SOLO_TIERS:
+        if (camera_motion or "").strip().lower() in {"ots_depth", "ots"}:
+            errors.append(
+                f"单人镜 (tier={tier}) 禁配过肩机位 '{camera_motion}'，易裂出同性双人；请改用 static_front/push_tension/high_downward"
+            )
+        if pid in TWO_BODY_POSES:
+            errors.append(
+                f"单人镜 (tier={tier}) 禁止挂载双人同框体位 '{pid}'，请切双人 tier 或改为 srs_female/srs_male"
+            )
     return (len(errors) == 0, errors, warnings)

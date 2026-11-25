@@ -41,5 +41,9 @@ def run_dryrun(target_dir):
 
 
 if __name__ == "__main__":
+    import argparse
     sys.stdout.reconfigure(encoding="utf-8")
-    run_dryrun(sys.argv[1] if len(sys.argv) > 1 else tempfile.mkdtemp(prefix="whale_neutral_"))
+    ap = argparse.ArgumentParser(description="吞鲸宝典离线双画幅中性端到端测试")
+    ap.add_argument("target_dir", nargs="?", default="", help="可选测试输出目录（不填则自动用系统临时目录）")
+    args = ap.parse_args()
+    run_dryrun(args.target_dir or tempfile.mkdtemp(prefix="whale_neutral_"))

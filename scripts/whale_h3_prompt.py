@@ -487,3 +487,170 @@ def validate_batch_voice_consistency(batch, voice_registry=None):
                         f"镜头 {sid_label} [音色账本冲突]：角色 '{cname}' 在 voice_bible.json 中固定为 {reg['speaker_id']}，本镜错写为 {spk_id}！"
                     )
     return errors, warnings
+
+
+def ensure_default_voice_registry(speakers=None):
+    """当项目未手工配置 voice_bible.json 时，提供默认全集差异化英文音色账本（S1 女主 / S2 男主 / S9 旁白）。"""
+    entries = [
+        {"character": "女子A", "speaker_id": "S1", "preset": "young_female_clear", "gender": "female", "age_group": "young_adult"},
+        {"character": "男子A", "speaker_id": "S2", "preset": "mature_male_deep", "gender": "male", "age_group": "adult"},
+        {"character": "旁白", "speaker_id": "S9", "preset": "narrator_calm", "gender": "neutral", "age_group": "adult"},
+    ]
+    presets = list(VOICE_TIMBRE_PRESETS.keys())
+    used_sids = {e["speaker_id"] for e in entries}
+    used_presets = {e["preset"] for e in entries}
+    next_sid = 3
+    for spk in (speakers or []):
+        name = str(spk or "").strip()
+        if not name or any(e["character"] == name for e in entries):
+            continue
+        while f"S{next_sid}" in used_sids:
+            next_sid += 1
+        sid = f"S{next_sid}"
+        used_sids.add(sid)
+        pick = next((p for p in presets if p not in used_presets), presets[next_sid % len(presets)])
+        used_presets.add(pick)
+        entries.append({"character": name, "speaker_id": sid, "preset": pick})
+    return VoiceRegistry(entries)
+
+
+def compile_h3_base_prompt(spec, voice_registry=None):
+    """编译官方 MiniMax H3 三段式提示词（Base 文生 / first_frame 首帧 / first_last_frame 首尾帧）。
+
+    输出结构严格遵循官方 base-en.txt 与 references/dialects/minimax-h3.md：
+      integrated_multimodal_description: [Shot 1] ...
+      overall_soundscape: ...
+      non_diegetic_music: ...
+    """
+    if not isinstance(spec, dict):
+        raise ValueError("spec must be a dict")
+    mode = str(spec.get("mode") or "text").strip().lower()
+    if mode not in ("text", "first_frame", "first_last_frame"):
+        raise ValueError(f"Base 3-section mode must be text/first_frame/first_last_frame, got {mode!r}")
+    style = _clean_en(spec.get("style") or "Realistic 35mm live-action cinema", "style")
+    framing = _clean_en(spec.get("framing") or "medium close-up", "framing")
+    raw_cam = str(spec.get("camera") or "push_tension").strip()
+    cam_phrase = OFFICIAL_CAMERA_PHRASES.get(raw_cam, _clean_en(raw_cam, "camera"))
+    de_oil_clause = f", {DE_OIL}" if spec.get("apply_de_oil", True) else ""
+
+    cuts = spec.get("shots") or [
+        {"action": spec.get("action") or "", "speech": spec.get("speech"), "t0": 0.0}
+    ]
+    shot_lines = []
+    for idx, c in enumerate(cuts, 1):
+        act = _clean_en(c.get("action") or "", f"shots[{idx}].action")
+        if not act:
+            raise ValueError(f"shots[{idx}].action must be nonempty English")
+        prefix = f"[Shot {idx}] " if idx == 1 else f"[Shot {idx}] At {float(c.get('t0', 0.0)):06.3f}s, ".replace("At 00", "At 00:")
+        if idx > 1:
+            t_val = float(c.get("t0", 0.0))
+            mm = int(t_val // 60)
+            ss = t_val - mm * 60
+            prefix = f"[Shot {idx}] At {mm:02d}:{ss:06.3f}, "
+        line = f"{prefix}{style}; {framing}; the camera {cam_phrase}{de_oil_clause}; {act.rstrip('.')}."
+        sp = c.get("speech")
+        if isinstance(sp, dict) and str(sp.get("mode") or "none").lower() != "none":
+            raw_txt = str(sp.get("text") or "").strip()
+            if not raw_txt:
+                raise ValueError(f"shots[{idx}].speech.text cannot be empty")
+            lang = str(sp.get("language") or "Chinese").strip()
+            reg = voice_registry.get(sp.get("character") or sp.get("speaker_id")) if voice_registry else None
+            sid = str(sp.get("speaker_id") or (reg["speaker_id"] if reg else "S1")).strip().upper()
+            timbre = _clean_en(sp.get("timbre") or (reg["timbre"] if reg else VOICE_TIMBRE_PRESETS["young_female_clear"]), "speech.timbre")
+            sp_mode = str(sp.get("mode") or "on_screen").lower()
+            vo_phrase = " in an off-screen voiceover" if sp_mode in ("off_screen_vo", "inner_monologue", "narrator") else ""
+            close_note = " Visible performers keep their lips completely closed." if vo_phrase else ""
+            line += f" The speaker ({sid}), in {timbre}, says{vo_phrase}: <d>[{lang}]{raw_txt}</d>.{close_note}"
+        shot_lines.append(line)
+
+    soundscape = _clean_en(spec.get("soundscape") or "Natural ambient room tone and subtle physical foley continue throughout.", "soundscape")
+    music = _clean_en(spec.get("non_diegetic_music") or "N/A", "non_diegetic_music")
+    return "\n".join([
+        "integrated_multimodal_description: " + " ".join(shot_lines),
+        f"overall_soundscape: {soundscape}",
+        f"non_diegetic_music: {music}",
+    ])
+
+
+def compile_h3_container_prompt(cuts, voice_registry=None, *, style="Realistic 35mm live-action cinema", apply_de_oil=True, soundscape="", non_diegetic_music="N/A"):
+    """编译官方 MiniMax H3 多镜容器六段式提示词（4–15s 内打包 2–3 个连续切镜，每切绑定独立起始帧）。
+
+    严格按 `references/dialects/minimax-h3.md#多镜容器每切一张关键帧` 生成：
+      - 首行锚定句：`<Picture 1> aligns with the 0.00-second mark as the opening frame of [Shot 1]; <Picture 2> aligns with the ...`
+      - `subject_definitions` / `summary` / `retention_analysis` / `detailed_description` / `overall_soundscape` / `non_diegetic_music`
+    """
+    if not isinstance(cuts, list) or not 2 <= len(cuts) <= 4:
+        raise ValueError("Multi-cut container requires 2 to 4 cuts within 4-15s")
+    total_dur = sum(float(c.get("duration") or 0.0) for c in cuts)
+    if not 4.0 <= total_dur <= 15.0:
+        raise ValueError(f"Multi-cut container total duration must stay within 4..15s, got {total_dur:.2f}s")
+
+    align_parts = []
+    sub_defs = []
+    ret_lines = []
+    shared_slots = []
+    shared_pic_idx = len(cuts) + 1
+
+    t_cursor = 0.0
+    shot_blocks = []
+    for idx, cut in enumerate(cuts, 1):
+        kf_desc = _clean_en(cut.get("keyframe_desc") or "", f"cuts[{idx}].keyframe_desc")
+        if not kf_desc:
+            raise ValueError(f"cuts[{idx}] requires keyframe_desc (every cut in a container must bind its own keyframe)")
+        align_parts.append(f"<Picture {idx}> aligns with the {t_cursor:.2f}-second mark as the {'opening ' if idx == 1 else ''}frame of [Shot {idx}]")
+        sub_defs.append(f"<Picture {idx}> is the opening keyframe of [Shot {idx}], showing {kf_desc}.")
+        ret_lines.append(f"<Picture {idx}> ([Shot {idx}] opening frame): fully_preserved - composition, pose, and lighting from <Picture {idx}> anchor [Shot {idx}].")
+
+        act = _clean_en(cut.get("action") or "", f"cuts[{idx}].action")
+        framing = _clean_en(cut.get("framing") or "medium close-up", f"cuts[{idx}].framing")
+        raw_cam = str(cut.get("camera") or "push_tension").strip()
+        cam_phrase = OFFICIAL_CAMERA_PHRASES.get(raw_cam, _clean_en(raw_cam, "camera"))
+        de_oil_clause = f", {DE_OIL}" if apply_de_oil else ""
+        if idx == 1:
+            head = f"[Shot 1] {_clean_en(style, 'style')}; {framing}; the camera {cam_phrase}{de_oil_clause}; the shot opens from <Picture 1>, {act.rstrip('.')}."
+        else:
+            mm = int(t_cursor // 60)
+            ss = t_cursor - mm * 60
+            head = f"[Shot {idx}] At {mm:02d}:{ss:06.3f}, the shot cuts to {framing}; the camera {cam_phrase}; starting from <Picture {idx}>, {act.rstrip('.')}."
+        sp = cut.get("speech")
+        if isinstance(sp, dict) and str(sp.get("mode") or "none").lower() != "none":
+            raw_txt = str(sp.get("text") or "").strip()
+            lang = str(sp.get("language") or "Chinese").strip()
+            reg = voice_registry.get(sp.get("character") or sp.get("speaker_id")) if voice_registry else None
+            sid = str(sp.get("speaker_id") or (reg["speaker_id"] if reg else "S1")).strip().upper()
+            timbre = _clean_en(sp.get("timbre") or (reg["timbre"] if reg else VOICE_TIMBRE_PRESETS["young_female_clear"]), "speech.timbre")
+            head += f" {sid}, speaking in {timbre}, says: <d>[{lang}]{raw_txt}</d>."
+        shot_blocks.append(head)
+        t_cursor += float(cut.get("duration") or 0.0)
+
+        for sh_slot in (cut.get("shared_slots") or []):
+            key = (sh_slot.get("subject"), sh_slot.get("desc"))
+            if key not in [(s.get("subject"), s.get("desc")) for s in shared_slots]:
+                shared_slots.append({**sh_slot, "_pic": shared_pic_idx})
+                shared_pic_idx += 1
+
+    for sh in shared_slots:
+        sub_num = int(sh.get("subject") or 1)
+        pic_num = int(sh["_pic"])
+        desc = _clean_en(sh.get("desc") or "", "shared_slot.desc")
+        kind = str(sh.get("kind") or "character").lower()
+        ret = _normalize_retention(kind, sh.get("retention"))
+        sub_defs.append(f"<Subject {sub_num}> is {desc}, anchored in <Picture {pic_num}>.")
+        ret_lines.append(f"<Subject {sub_num}> (appears across shots): {ret} - identity and appearance locked to <Picture {pic_num}>.")
+
+    align_sentence = "; ".join(align_parts) + "."
+    ss_txt = _clean_en(soundscape or "Continuous natural environment tone and synchronized foley across cuts.", "soundscape")
+    mu_txt = _clean_en(non_diegetic_music or "N/A", "non_diegetic_music")
+    return "\n".join([
+        align_sentence,
+        "subject_definitions:",
+        *sub_defs,
+        f"summary: [keyframe completion + reference generation] A {len(cuts)}-shot continuous multi-cut sequence spanning {total_dur:.2f} seconds.",
+        "retention_analysis:",
+        *ret_lines,
+        "detailed_description:",
+        f"Camera: multi-cut sequence over {total_dur:.2f}s{', ' + DE_OIL if apply_de_oil else ''}.",
+        *shot_blocks,
+        f"overall_soundscape: {ss_txt}",
+        f"non_diegetic_music: {mu_txt}",
+    ])

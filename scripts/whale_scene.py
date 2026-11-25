@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-吞鲸宝典 v4.6.3 · 全剧集视听导演调度与自动摄影拆镜引擎 (WhaleDigest Scene & Auto-DP Engine v4.6.3)
+吞鲸宝典 v4.7.0 · 全剧集视听导演调度与自动摄影拆镜引擎 (WhaleDigest Scene & Auto-DP Engine v4.7.0)
 
 核心特性：
 1. 全剧集弹性时长（60s ~ 360s 任意定）與自由文/肉节奏：
@@ -54,20 +54,20 @@ SHOT_SIZES_EN = {
 CAMS = {
     "push_tension":    "压迫感慢推（Z轴向前推进15cm，聚焦情绪与发力）",
     "pull_reveal":     "抽离揭示慢拉（Z轴向后拉远18cm，交代空间关系）",
-    "tilt_up_desire":  "竖屏垂直上摇（Y轴从腰手缓摇至眼神，展现纵向曲线）",
-    "tilt_down_impact":"竖屏垂直下摇（Y轴从紧咬嘴唇下摇至受力接触点）",
+    "tilt_up_desire":  "垂直上摇（Y轴从腰手缓摇至眼神，展现纵向体态曲线）",
+    "tilt_down_impact":"垂直下摇（Y轴从紧咬嘴唇下摇至受力接触点）",
     "ots_depth":       "深景深过肩微移（前景虚焦肩部占20%，横向微移6cm撑开纵深）",
     "arc_subtle":      "微弧度立体偏转（10度侧向微弧滑动12cm，制造背景立体视差）",
     "handheld_breath": "呼吸感手持微晃（2cm有机呼吸律动，跟随肉体节奏）",
-    "low_upward":      "微仰权力压迫（12度竖屏防变形微仰角向上仰拍并慢推10cm）",
-    "high_downward":   "微俯脆弱承受（15度竖屏防变形微俯角向下俯拍并微降8cm）",
+    "low_upward":      "微仰权力压迫（12度防变形微仰角向上仰拍并慢推10cm）",
+    "high_downward":   "微俯脆弱承受（15度防变形微俯角向下俯拍并微降8cm）",
     "static_side":     "90度侧向定轴（三脚架稳固锁定，靠纯肉体冲撞带动画面）",
     "static_rear":     "后斜向定轴（三脚架稳固锁定，展现背部与臀胯发力）",
     "low_hip":         "低机位贴腰跟拍（贴近腰胯高度，随冲撞微幅呼吸）",
     # 兼容旧代号映射
     "static_front":    "正面中轴慢推（平视缓推10cm）",
     "ots":             "深景深过肩微移（前景虚焦肩部占20%）",
-    "high_angle":      "微俯脆弱承受（15度竖屏防变形微俯角向下俯拍）",
+    "high_angle":      "微俯脆弱承受（15度防变形微俯角向下俯拍）",
     "slow_push":       "压迫感慢推（Z轴向前推进15cm）",
     "follow_soft":     "微弧度立体跟随（侧向柔和跟随10cm）",
 }
@@ -701,9 +701,69 @@ def build_scene(chain, total_sec, poses, recipes=None, decisions=None):
     return allocate_exact_h3_frames(shots, total_sec)
 
 
-def resolve_slot_refs(shot_size, pose_id, is_nude_state=True, asset_dir=""):
+def _detect_project_mode(project_dir) -> str:
+    """读取 short-drama.json / state.json 显式模式，无显式声明时仅按物理存在成人迹象推断。"""
+    p = Path(project_dir).resolve() if project_dir else None
+    if not p or not p.exists():
+        return ""
+    for cand_root in (p, p.parent, p.parent.parent):
+        for cfg in (cand_root / "short-drama.json", cand_root / "short-drama" / "state.json"):
+            if cfg.is_file():
+                try:
+                    data = json.loads(cfg.read_text(encoding="utf-8"))
+                    pm = str(data.get("project_mode") or "").strip().lower()
+                    if pm in {"standard_drama", "adult_drama", "erotic", "nsfw", "adult"}:
+                        return "standard_drama" if pm == "standard_drama" else "adult_drama"
+                except Exception:
+                    pass
+    if any((p / d).is_file() for d in ("体位规划.json",)) or list(p.glob("剧集/*/体位规划.json")):
+        return "adult_drama"
+    for ad in (p / "00_资产", p / "assets", p / "制作成果" / "assets"):
+        if ad.is_dir():
+            if any("_nude" in f.name.lower() or "nude." in f.name.lower() for f in ad.rglob("*") if f.is_file()):
+                return "adult_drama"
+    return ""
+
+
+
+
+def _detect_production_form(project_dir) -> tuple[str, bool, str]:
+    """读取 short-drama.json 中的制作形态（实拍 / 二维动态漫 / 风格化三维 / 国漫二次元 / 水墨笔触 / Q版表达），
+    返回 (form_name, apply_de_oil, style_label_en)。
     """
-    吞鲸 v4.6.3 空间图池单槽轮换法（Multi-View Pool, Single-View Per Shot）+ 单人镜槽位物理隔离：
+    form_name = "实拍"
+    p = Path(project_dir).resolve() if project_dir else None
+    if p and p.exists():
+        for cand_root in (p, p.parent, p.parent.parent):
+            cfg = cand_root / "short-drama.json"
+            if cfg.is_file():
+                try:
+                    data = json.loads(cfg.read_text(encoding="utf-8"))
+                    pf = (
+                        data.get("production_form")
+                        or (data.get("visual_direction") or {}).get("production_form")
+                        or (data.get("creator_authority") or {}).get("production_form")
+                        or ""
+                    )
+                    if str(pf).strip():
+                        form_name = str(pf).strip()
+                        break
+                except Exception:
+                    pass
+    low = form_name.lower()
+    if any(k in low for k in ("三维", "3d", "cg")):
+        return form_name, False, "Stylized 3D animated cinema with physically grounded lighting"
+    if any(k in low for k in ("二维", "国漫", "二次元", "2d", "漫剧", "anime")):
+        return form_name, False, "2D cel-shaded anime cinema with clean linework and atmospheric lighting"
+    if any(k in low for k in ("水墨", "ink")):
+        return form_name, False, "Traditional ink-wash animated cinema with expressive brushwork"
+    if any(k in low for k in ("q版", "chibi", "q")):
+        return form_name, False, "Expressive chibi-stylized animated short film"
+    return form_name, True, "Live-action cinema"
+
+def resolve_slot_refs(shot_size, pose_id, is_nude_state=True, asset_dir="", project_mode=""):
+    """
+    吞鲸 v4.7.0 空间图池单槽轮换法（Multi-View Pool, Single-View Per Shot）+ 单人镜槽位物理隔离：
     1. 每一镜的 <Picture 3> (槽位 2) 永远只挂 1 张最匹配当前机位的空间底图（绝不多张空间图混挂打架，也绝不断开 <Picture 3> 锚点！）：
        - 墙边/立面/封堵戏 -> 优先选 `scene_wall.png`（若无则回退 `scene_main.png`）
        - 面部正反打/腰胯/微距特写 -> 优先选 `scene_close.png` 承托面近景图（解决切特写丢背景/假家具穿帮；若无则回退 `scene_main.png`）
@@ -717,10 +777,12 @@ def resolve_slot_refs(shot_size, pose_id, is_nude_state=True, asset_dir=""):
        - 前戏/肉戏 -> `lora_mystic_strength = 0.45`（激活 MysticXXX_MMH3-V5-ref2va）
     """
     first_p = (pose_id or "").split("->")[0]
+    if project_mode == "standard_drama":
+        is_nude_state = False
     f_img = "female_nude.png" if is_nude_state else "female_dressed.png"
     m_img = "male_nude.png" if is_nude_state else "male_dressed.png"
 
-    # 扫描 00_资产/ 真实图片池：优先匹配实际存在的文件名（避免 00_资产 里叫其他名字时盲填不存在的默认假名）
+    # 扫描 00_资产/ 真实图片池（支持中文文件名）：优先匹配实际存在的文件名，避免盲填不存在的占位假名
     s_main = "scene_main.png"
     s_wall = "scene_wall.png"
     s_close = "scene_close.png"
@@ -729,23 +791,32 @@ def resolve_slot_refs(shot_size, pose_id, is_nude_state=True, asset_dir=""):
             f for f in os.listdir(asset_dir)
             if os.path.isfile(os.path.join(asset_dir, f))
             and f.lower().endswith((".png", ".jpg", ".jpeg", ".webp"))
-            and f.isascii()
         )
+        if project_mode == "standard_drama":
+            existing = [f for f in existing if "_nude" not in f.lower() and "nude." not in f.lower()]
         existing_set = set(existing)
+        non_scene = [
+            f for f in existing
+            if not any(k in f.lower() for k in ("scene", "room", "bg", "env", "office", "corridor", "场景", "背景", "daoju", "prop", "道具"))
+        ]
         if f_img not in existing_set:
-            f_cands = [f for f in existing if ("female" in f.lower() or f.lower().startswith("f_"))
+            f_cands = [f for f in existing if ("female" in f.lower() or f.lower().startswith("f_") or "女" in f)
                        and (("nude" in f.lower()) == bool(is_nude_state) or ("nude" not in f.lower() and "dressed" not in f.lower()))]
             if not f_cands:
-                f_cands = [f for f in existing if "female" in f.lower() or f.lower().startswith("f_")]
+                f_cands = [f for f in existing if "female" in f.lower() or f.lower().startswith("f_") or "女" in f]
+            if not f_cands and non_scene:
+                f_cands = non_scene
             if f_cands:
                 f_img = f_cands[0]
         if m_img not in existing_set:
-            m_cands = [f for f in existing if ("male" in f.lower() and "female" not in f.lower()) or f.lower().startswith("m_")]
+            m_cands = [f for f in existing if ("male" in f.lower() and "female" not in f.lower()) or f.lower().startswith("m_") or "男" in f]
             m_state = [f for f in m_cands if ("nude" in f.lower()) == bool(is_nude_state)]
             if m_state:
                 m_img = m_state[0]
             elif m_cands:
                 m_img = m_cands[0]
+            elif non_scene:
+                m_img = non_scene[1] if len(non_scene) > 1 else non_scene[0]
         if s_main not in existing_set:
             s_cands = [f for f in existing if any(k in f.lower() for k in ("scene", "room", "bg", "env", "office", "corridor"))]
             if s_cands:
@@ -813,7 +884,7 @@ def h3_frames(sec):
 
 def save_project_artifacts(out_dir, shots, actual_total, want_total, lines="",
                            idea="", scene="卧室", pose_names="", aspect="9:16", scene_id=None, script_path=None, pace_driver=None, pace_overrides=None, pace=None, actor=None, chain=None, review=None, wardrobe_mode=""):
-    """一键在项目目录落盘：分镜.md + 视频提示词.md + 批量任务.json（吞鲸 v4.6.3 规范，横竖屏双轨）
+    """一键在项目目录落盘：分镜.md + 视频提示词.md + 批量任务.json（吞鲸 v4.7.0 规范，横竖屏双轨）
     aspect: '9:16' 竖屏 / '16:9' 横屏 / '1:1' 方屏，决定景别/机位/运镜/分辨率整套构图语言。
     """
     import datetime
@@ -848,7 +919,7 @@ def save_project_artifacts(out_dir, shots, actual_total, want_total, lines="",
     total_frames_sum = sum(s.get("frames", h3_frames(s["dur"])) for s in shots)
 
     sb_lines = [
-        f"# 吞鲸工作室 v4.6.3 · 全剧集导演调度与 Auto-DP 分镜表 ([Track: Ref2V])",
+        f"# 吞鲸工作室 v4.7.0 · 全剧集导演调度与 Auto-DP 分镜表 ([Track: Ref2V])",
         f"- 目标总时长：{want_total}s | 实际闭合总时长：{actual_total}s | 总帧数：{total_frames_sum}帧 | 总镜数：{len(shots)} 镜 | 画幅：{orient_label} {res['width']}x{res['height']}",
         f"- 调度与姿势主链：{pose_names}",
         f"- 轨道模式：[Track: Ref2V] 全片纯血锚定 + 空间图池单槽轮换 + 单人正反打物理隔离 + {orient_label}构图语言",
@@ -858,7 +929,7 @@ def save_project_artifacts(out_dir, shots, actual_total, want_total, lines="",
     ]
 
     prompt_lines = [
-        f"# 吞鲸工作室 v4.6.3 · 逐镜 R1~R12 全肯定送模提示词",
+        f"# 吞鲸工作室 v4.7.0 · 逐镜 R1~R12 全肯定送模提示词",
         f"- 场景：{scene} | 总镜数：{len(shots)} 镜 | 总帧数：{total_frames_sum}帧 | 画幅：{orient_label}",
         "",
         "---",
@@ -898,10 +969,16 @@ def save_project_artifacts(out_dir, shots, actual_total, want_total, lines="",
 
     # 单调服装状态机：若前序为文戏调度/对峙肢体/挑逗或脱衣，初始处于穿衣状态；一旦经过脱衣或进入实质前戏/肉戏后单向锁死为素身
     # wardrobe_mode 显式覆盖（"nude_all" / "dressed_all"）用于整段同一服装状态；留空则沿用自动状态机
+    detected_mode = _detect_project_mode(out_dir)
+    _prod_form, _apply_de_oil, _style_en = _detect_production_form(out_dir)
+    from whale_h3_prompt import load_project_voice_registry, ensure_default_voice_registry
+    _vreg = load_project_voice_registry(out_dir) or ensure_default_voice_registry()
     wardrobe_mode = (wardrobe_mode or "").strip()
     if wardrobe_mode not in ("", "nude_all", "dressed_all"):
         raise ValueError(f"Unsupported wardrobe_mode: {wardrobe_mode!r}")
-    is_nude_state = True
+    if detected_mode == "standard_drama" and wardrobe_mode != "nude_all":
+        wardrobe_mode = "dressed_all"
+    is_nude_state = False if detected_mode == "standard_drama" else True
     if shots and (shots[0].get("pose", "") in STAGING_IDS or "undress" in shots[0].get("pose", "")):
         is_nude_state = False
     if wardrobe_mode == "nude_all":
@@ -939,7 +1016,7 @@ def save_project_artifacts(out_dir, shots, actual_total, want_total, lines="",
             shot_line = txt
 
         tier_label, ref_keys, ref_imgs, lora_w, spatial_zone = resolve_slot_refs(
-            s["size"], s["pose"], is_nude_state=is_nude_state, asset_dir=asset_dir
+            s["size"], s["pose"], is_nude_state=is_nude_state, asset_dir=asset_dir, project_mode=detected_mode
         )
         if landscape and tier_label in ("B_solo_female", "B_solo_male") and s["cam"] in CAMS_EN_LANDSCAPE_SOLO:
             cam_desc_en = CAMS_EN_LANDSCAPE_SOLO[s["cam"]]
@@ -947,7 +1024,7 @@ def save_project_artifacts(out_dir, shots, actual_total, want_total, lines="",
             # Slot membership is the union of visible performers over the take,
             # not the cast of its final step. Keep the opening framing/camera.
             for beat in s['action_steps']:
-                slots = resolve_slot_refs(beat['framing']['size'], beat['选择'], is_nude_state, asset_dir)
+                slots = resolve_slot_refs(beat['framing']['size'], beat['选择'], is_nude_state, asset_dir, project_mode=detected_mode)
                 if slots[0].startswith('A_two_shot'):
                     tier_label, ref_keys, ref_imgs, lora_w, spatial_zone = slots
                     break
@@ -967,12 +1044,18 @@ def save_project_artifacts(out_dir, shots, actual_total, want_total, lines="",
         else:
             auto_emotion = "surge"
 
+        _spk_entry = _vreg.get(shot_speaker) if shot_line else None
+        if _spk_entry is None and shot_line:
+            _spk_id_fallback = f"S{resolve_speaker(shot_speaker)}" if shot_speaker else "S1"
+            _spk_entry = _vreg.get(_spk_id_fallback)
+        _voice_timbre = _spk_entry["timbre"] if _spk_entry else ""
         prompt_text = single_shot_prompt(
             s, i - 1, len(shots), s["dur"], size_desc_en, cam_desc_en,
             lines=shot_line, speaker=shot_speaker, idea=idea, scene=s["blocking_state"]["location"], pose_names=pose_names,
             emotion=auto_emotion, voiceover=is_voiceover_cue(explicit_emo),
             tier=tier_label, has_audio_refs=False, aspect=normalize_aspect(aspect),
-            nudity=is_nude_state
+            nudity=is_nude_state,
+            voice_timbre=_voice_timbre, apply_de_oil=_apply_de_oil, style_label=_style_en
         )
 
         extra_tags = []
@@ -1095,6 +1178,8 @@ def save_project_artifacts(out_dir, shots, actual_total, want_total, lines="",
         "schema": "h3-drama-task",
         "version": 4,
         "engine": "tunjing-baodian",
+        **({"project_mode": detected_mode} if detected_mode else {}),
+        "production_form": _prod_form,
         "execution_board": sb_path.name,
         "blocking_input_hashes": {**sources, sb_path.name: file_hash(sb_path)},
         "workflow_template": "references/whale_schema.json",
@@ -1115,7 +1200,7 @@ def save_project_artifacts(out_dir, shots, actual_total, want_total, lines="",
 
     print(f"[✓] 已落盘分镜表: {sb_path}")
     print(f"[✓] 已落盘提示词: {pr_path}")
-    print(f"[✓] 已落盘吞鲸 v4.6.3 批量任务 JSON ({len(batch_shots)} 镜 / {total_frames_sum} 帧): {bj_path}")
+    print(f"[✓] 已落盘吞鲸 v4.7.0 批量任务 JSON ({len(batch_shots)} 镜 / {total_frames_sum} 帧): {bj_path}")
     return str(sb_path), pr_path, bj_path
 
 
@@ -1125,7 +1210,7 @@ def print_table(shots, actual_total, want_total, lines="", idea="", scene="卧�
     shots[:] = pacing.apply(shots, pace_driver, actor=actor, pace=pace, overrides=pace_overrides)
     line_map, actual_total = prepare_dialogue_shots(shots, lines, want_total)
     print("=" * 100)
-    print(f"🐳 吞鲸宝典 v4.6.3 · 全剧集 Auto-DP 拆镜表    目标 {want_total}s / 实际 {actual_total}s / 共 {len(shots)} 镜")
+    print(f"🐳 吞鲸宝典 v4.7.0 · 全剧集 Auto-DP 拆镜表    目标 {want_total}s / 实际 {actual_total}s / 共 {len(shots)} 镜")
     print("=" * 100)
     print(f"{'镜':<4}{'时间':<14}{'时长':<7}{'帧数':<6}{'景别':<8}{'Auto-DP运镜':<18}{'调度/姿势':<18}")
     print("-" * 100)
@@ -1198,7 +1283,7 @@ def print_table(shots, actual_total, want_total, lines="", idea="", scene="卧�
 
 
 def main():
-    ap = argparse.ArgumentParser(description="吞鲸 v4.6.3 全剧集视听导演调度与 Auto-DP 拆镜引擎")
+    ap = argparse.ArgumentParser(description="吞鲸 v4.7.0 全剧集视听导演调度与 Auto-DP 拆镜引擎")
     ap.add_argument("--chain", help="调度与姿势链，逗号分隔（支持 env_establish,blocking_2s,srs_male,srs_female,prop_insert 及 55 套体位）")
     ap.add_argument("--total", type=float, default=120.0, help="本集目标总时长秒（60~360s 任意弹性指定）")
     ap.add_argument("--lines", default="", help="本段台词")

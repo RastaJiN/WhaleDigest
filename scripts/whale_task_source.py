@@ -164,7 +164,7 @@ def verify_sourced_dialogue(sequence, rows):
         words_for_part = turn.get('part_text',turn['text'])
         speech = re.findall(r'^SPEECH: ([^\n]*?)<d>\[Chinese\]', row['prompt'], re.M)
         actor = turn['actor']; digit = actor[1:]
-        anchor = rf'(?:<Subject {digit}> \({actor}\)|the narrator \(voice {actor}\)) says(?: in an off-screen voiceover)?: $'
+        anchor = rf'(?:<Subject {digit}> \({actor}\)|the narrator \(voice {actor}\))(?:, speaking in [^:\n]+)? says(?: in an off-screen voiceover)?: $'
         if len(speech)!=1 or not re.search(anchor,speech[0]) or words != [words_for_part]:
             raise TaskSourceError('Exported SPEECH does not match source actor and verbatim utterance')
         if turn.get('part',0) != len(parts): raise TaskSourceError('Reordered speech continuation')
