@@ -177,17 +177,24 @@ def index_blocks(
 
 
 def declared_rates(project: dict[str, Any] | None) -> dict[str, Any]:
-    """Read the project's own pacing rates, or report that it declared none."""
+    """Read the project's own pacing rates, falling back to studio defaults when undeclared."""
     pacing = ((project or {}).get("format") or {}).get("pacing") or {}
     per_second = pacing.get("spoken_characters_per_second")
     per_action = pacing.get("seconds_per_action_paragraph")
     usable = isinstance(per_second, (int, float)) and per_second > 0 and (
         isinstance(per_action, (int, float)) and per_action >= 0
     )
+    if not usable:
+        # 兜底采用吞鲸默认语速与动作段落基准（4.1 字/秒，动作段 3.0 秒），避免未声明 pacing 时整集算时瘫痪
+        return {
+            "declared": False,
+            "spoken_characters_per_second": 4.1,
+            "seconds_per_action_paragraph": 3.0,
+        }
     return {
-        "declared": bool(usable),
-        "spoken_characters_per_second": per_second if usable else None,
-        "seconds_per_action_paragraph": per_action if usable else None,
+        "declared": True,
+        "spoken_characters_per_second": per_second,
+        "seconds_per_action_paragraph": per_action,
     }
 
 
