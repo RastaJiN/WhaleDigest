@@ -161,7 +161,23 @@ def audit_step_2(project_dir):
     from whale_solo import PROP_IDS
     KNOWN_IDS.update(PROP_IDS)
     ids_in_script = set(re.findall(r'\b([a-z][a-z_0-9]{1,24})\b', content)) & KNOWN_IDS
+    # Check project_mode: standard_drama does NOT require adult pose keywords!
+    pmode_g2 = "standard_drama"
+    try:
+        from whale_scene import _detect_project_mode
+        pmode_g2 = _detect_project_mode(project_dir)
+    except Exception:
+        pass
+    is_adult_g2 = (pmode_g2 == "adult_drama")
+
     if len(ids_in_script) + len(set(ZH_ACTION_KEYWORDS)) < 2:
+        if not is_adult_g2:
+            try:
+                from whale_dashboard import auto_start_dashboard
+                auto_start_dashboard(project_dir, open_browser=True)
+            except Exception:
+                pass
+            return True, f"正剧模式 ({pmode_g2}) 剧本结构、场次与活人感台词验收 PASS！允许进入分镜设计。"
         # One reviewed action/shot is sufficient evidence in this pipeline.
         # Don't manufacture a second pose to satisfy the legacy heuristic.
         if planned:

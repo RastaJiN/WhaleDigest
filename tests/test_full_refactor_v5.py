@@ -231,7 +231,7 @@ class FullRefactorV5Test(unittest.TestCase):
             Image.new("RGB", (64, 64), (90, 90, 90)).save(p2 / "00_资产" / "林川.png")
             (p2 / "short-drama.json").write_text(json.dumps({"title": "中文参考", "project_mode": "standard_drama", "format": {"aspect_ratio": "16:9"}}))
             sc_md = p2 / "剧本.md"
-            sc_md.write_text("# EP001\n\n## EP001-SC001 内 · 办公室 · 日\n\n林川：开始了。\n", encoding="utf-8")
+            sc_md.write_text("# EP001\n\n## EP001-SC001 内 · 办公室 · 日\n\n林川：<d>[Chinese]开始了。</d>\n", encoding="utf-8")
             shots, actual = scene.build_scene(["env_establish", "srs_male"], 10.0, core.load_poses())
             sb_p, _, _ = scene.save_project_artifacts(str(p2), shots, actual, 10.0, scene="办公室", lines="2:男子A:开始了。", aspect="16:9", script_path=str(sc_md))
             pb = creator_views.parse_storyboard(Path(sb_p).read_text(encoding="utf-8"))
@@ -301,6 +301,21 @@ class FullRefactorV5Test(unittest.TestCase):
         )
         rows = prose.screenplay(script, aliases={"林川": "S2", "欢宝": "S1"})
         self.assertTrue(len(rows) >= 4)
+
+
+    def test_standard_drama_gate2_does_not_require_adult_poses(self):
+        import whale_gatekeeper as gk
+        with tempfile.TemporaryDirectory() as td:
+            p = Path(td) / "std_ep"
+            p.mkdir()
+            (p / "short-drama.json").write_text(json.dumps({"title": "正剧测试", "project_mode": "standard_drama"}), encoding="utf-8")
+            (p / "剧本.md").write_text(
+                "# EP001\n\n## 第一幕\n\n林川坐在工位上打字。\n\n林川：<d>[Chinese]开始了。</d>\n\n## 第二幕\n\n赵斌走进办公室。\n\n赵斌：<d>[Chinese]走吧。</d>\n",
+                encoding="utf-8",
+            )
+            ok, msg = gk.audit_step_2(str(p))
+            self.assertTrue(ok, msg)
+            self.assertIn("正剧模式", msg)
 
 
 if __name__ == "__main__":
