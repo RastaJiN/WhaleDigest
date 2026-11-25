@@ -306,6 +306,10 @@ def load_poses_local():
 
 def plan_shot(pid, poses):
     plan = POSE_SHOT_PLAN.get(pid) or [("mcu", "arc_subtle")]
+    allowed = (poses.get(pid) or {}).get("allowed_cameras")
+    if allowed:
+        fallback_cam = allowed[0]
+        plan = [(shot_type, cam if cam in allowed else fallback_cam) for shot_type, cam in plan]
     return plan
 
 

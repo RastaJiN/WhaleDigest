@@ -340,6 +340,7 @@ def choose(text,source,poses,scene,scene_id=None):
         if base['source_scene'] != active_scene:
             active_scene, last_pose = base['source_scene'], None
         items = []
+        stage = []
         notes = prose.focal_notes(action, row['cast'])
         if re.search(r'(?:^|[：:，, ])(?:纯)?空镜|空间建立空镜|\benv_establish\b',action):
             items.append({'staging':'env_establish'})
@@ -373,7 +374,12 @@ def choose(text,source,poses,scene,scene_id=None):
         for turn in turns:
             available = next((item for item in items if 'dialogue' not in item and item.get('staging') != 'env_establish'),None)
             if available is None:
-                available={'staging':'srs_female' if turn['actor']=='S1' else 'srs_male'}; items.append(available)
+                # 肉戏/亲密体位进行中，独立台词行不强制切回正反打 (srs_male/srs_female)，直接沿用当前已建立的 last_pose
+                if last_pose and last_pose != 'none' and not stage:
+                    available={'staging': last_pose}
+                else:
+                    available={'staging':'srs_female' if turn['actor']=='S1' else 'srs_male'}
+                items.append(available)
             available['dialogue']=turn
         sequence.extend({**base,**item} for item in items)
     if cards or state.exists(): write_json(state,cards)
@@ -437,7 +443,8 @@ def reviewed_plan(project,source,scene,scene_id=None):
                 if j: meta.pop('dialogue',None)
                 decisions[len(chain)]=dict(step,source_line=item['line'],**meta); chain.append(step['选择'])
         else:
-            if item.get('staging') not in staging: raise ValueError('Unreviewed action in staging plan')
+            if item.get('staging') not in staging and item.get('staging') not in {c.get('main_pose', [None])[-1] for c in cards}:
+                raise ValueError('Unreviewed action in staging plan')
             decisions[len(chain)]={'staging':item['staging'],'line':item['line'],**meta}; chain.append(item['staging'])
     return chain,decisions,cards
 

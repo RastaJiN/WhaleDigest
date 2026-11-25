@@ -317,6 +317,7 @@
     "lineZh": "嗯，啊，嗯，啊，",
     "lineEn": "Mmm… ah… mmm…",
     "allowed_cameras": [
+      "tilt_up_desire",
       "push_tension",
       "low_upward",
       "handheld_breath"
@@ -778,9 +779,10 @@
     "lineZh": "嗯，啊，嗯，啊，",
     "lineEn": "Don't stop… I'm bracing…",
     "allowed_cameras": [
+      "static_side",
       "push_tension",
-      "handheld_breath",
-      "static_subtle"
+      "low_hip",
+      "handheld_breath"
     ]
   },
   "table_doggy": {
