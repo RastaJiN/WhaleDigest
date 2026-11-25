@@ -1,7 +1,7 @@
 ---
 name: tunjing-baodian
-description: "Use when producing or auditing short dramas with WhaleDigest."
-version: 4.7.0
+description: "Use when creating, importing, formatting, or producing short dramas and manju (短剧/漫剧/正剧/剧本导入/分镜/提示词/工作台/审片) with WhaleDigest."
+version: 4.7.1
 author: 吞鲸工作室 (Swallowing Whale Studio)
 license: MIT
 metadata:
@@ -9,7 +9,7 @@ metadata:
     tags: [tunjing, baodian, drama, ref2v, gatekeeper]
 ---
 
-# 🐳 WhaleDigest · 短剧工业化导演与门禁引擎 (v4.7.0)
+# 🐳 WhaleDigest · 短剧工业化导演与门禁引擎 (v4.7.1)
 
 > 阶段解耦 · 非破坏剧本导入 · 统一 H3 编译器 · 闭环门禁 · 本地工作台一体交付。
 > 工程验收边界与测试说明见 [engineering-contract.md](references/engineering-contract.md)。
@@ -27,8 +27,8 @@ metadata:
      - *跨脚本/视图修改避坑*：改写 `whale_gatekeeper.py` 等多步骤脚本时，校验补丁必须锚定该步独有文件变量（如 Gate 2 的 `script_file`），禁止匹配 `with open(path)` 这类与 Gate 3（`分镜.md`）共用的模板行；扩展 `creator_views.py` 时须保留中文参考图文件名（禁止用 `[A-Za-z0-9_./-]+` 截断中文资产名），并区分项目根目录与分集目录——工作台进度与 `设定`/`分镜`/`提示词` 页签只认 `剧集/<EP>/` 下的对应文件，未制作下游阶段时如实保持 `0/N` 未写，不从下游反推伪造上游 `剧本.md`。
    - **五文档阶段推进**（契约见 [creator-documents.md](references/sd_core/creator-documents.md) 与 [creator-workflow.md](references/sd_core/creator-workflow.md)）：
      `剧集/<EP>/剧本.md` ➔ `剧集/<EP>/视觉设定.md`（特殊模式按需加挂动作序列规划）➔ `剧集/<EP>/图片提示词.md` ➔ `剧集/<EP>/分镜.md` ➔ `剧集/<EP>/视频提示词.md` ➔ 门禁核验 ➔ 生产/后期。
-   - **剧本就绪自动加载工作台（强制，不等用户催促）**：
-     项目中存在或刚写入 `剧本.md`（或 `剧集/*/剧本.md`）时，通过 `whale_pipeline.py` / `whale_gatekeeper.py` (Gate 2) / `whale_pipeline_check.py` 自动后台拉起本地创作台（手动唯一入口：`python scripts/whale_dashboard.py --workspace "<项目目录>" --port 0 --detach --open`，内部 `--status`/`--detach` 调用须带有限超时如 15s 防僵尸端口阻塞）。
+   - **剧本就绪自动加载与全页实时热同步（强制，不等用户催促）**：
+     只要通过 `whale_script_intake.py --apply`、对话手写或任何脚本新写入/修改了 `剧本.md`（或 `剧集/*/剧本.md`），**当场立即调用 `auto_start_dashboard(project_dir, open_browser=True)`（或 `python scripts/whale_dashboard.py --workspace "<项目目录>" --port 0 --detach --open`）并把可点击链接直接给用户，绝不等用户再下指令**；`whale_pipeline.py` / `whale_gatekeeper.py` (Gate 2) / `whale_pipeline_check.py` 同样自动拉起工作台。已运行的工作台会每 `2.5s` 自动比对 `/api/live_signature` 热同步磁盘改动（无需手工 F5 或下指令），且每次 `whale_dashboard.py` 检测到 `brand` 或 `code_fingerprint` 陈旧时会自动淘汰重启旧进程，确保永远加载最新版工作台（手动唯一入口：`python scripts/whale_dashboard.py --workspace "<项目目录>" --port 0 --detach --open`，内部 `--status`/`--detach` 调用须带有限超时如 15s 防僵尸端口阻塞）。
      若 `.short-drama/dashboard.json` 已有存活进程但 `brand != "tunjing-baodian"`，严禁静默复用，必须 `--restart` 终止旧进程后重拉。引导查看分镜示意图与检视器须指向顶部 `分镜` 阶段页签；`批量任务.json` 为下游编译产物，不作前置手写文件；Markdown 结构门禁与 ComfyUI 批任务门禁须各自独立核验；临时 E2E 验证完成后须停掉临时后台进程并清理临时目录。
 2. **制作形态与决策分工**
    - **六大制作形态卡（`references/sd_core/form-cards/*.md`）**：按 `short-drama.json` 的 `production_form` 自动匹配「实拍 / 二维动态漫 / 风格化三维 / 国漫二次元 / 水墨笔触 / Q版表达」；实拍默认启用 `DE_OIL` 去油光质感锁，动画/三维/水墨自动屏蔽 `35mm` 皮肤摄影前缀并切换对应风格描述。

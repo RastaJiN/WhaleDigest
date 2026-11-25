@@ -94,9 +94,40 @@ SCENE_RE = re.compile(
 TAG_RE = re.compile(r"^\[(?P<tag>VO|OS|SFX|画面文字|连续性|转场)\]\s*(?P<body>\S[\s\S]*)$")
 VOICE_BODY_RE = re.compile(r"^(?P<speaker>[^\s：（）:\[\]#]{1,40})：(?P<text>\S[\s\S]*)$")
 DIALOGUE_RE = re.compile(
-    r"^(?P<speaker>[^\s：（）:\[\]#]{1,40})"
-    r"(?:（(?P<cue>[^（）\r\n]+)）)?：(?P<text>\S[\s\S]*)$"
+    r"^(?:\*\*)?(?P<speaker>[^：（）:\[\]#*\r\n，。！？；、.!?,]{1,18}?)"
+    r"(?:（(?P<cue>[^（）\r\n]+)）)?(?:：\*\*|\*\*：|：)\s*(?P<text>\S[\s\S]*)$"
 )
+
+
+_NON_SPEAKER_SUFFIXES = ("近景", "特写", "远景", "全景", "中景", "结尾", "几步", "底线", "阶段", "节拍")
+
+
+def _looks_like_speaker(speaker: str) -> bool:
+    s = re.sub(r"^\*+|\*+$", "", (speaker or "").strip()).strip()
+    if not s or any(s.endswith(sfx) for sfx in _NON_SPEAKER_SUFFIXES):
+        return False
+    return len(s) <= 16
+
+
+def _clean_speaker_and_tag(raw_speaker: str, default_tag: str = "") -> tuple[str, str]:
+    spk = re.sub(r"^\*+|\*+$", "", (raw_speaker or "").strip()).strip()
+    tag = default_tag
+    m_v = re.fullmatch(r"(.+?)\s+(VO|OS|旁白|画外音)", spk, re.I)
+    if m_v:
+        spk = m_v.group(1).strip()
+        raw_t = m_v.group(2).upper()
+        tag = "VO" if raw_t in ("VO", "旁白") else "OS"
+    return spk, tag
+
+
+def _unwrap_dialogue_display(raw_text: str) -> str:
+    s = (raw_text or "").strip()
+    if len(s) >= 2 and s[0] == "`" and s[-1] == "`":
+        s = s[1:-1].strip()
+    m_d = re.fullmatch(r"<d>\s*(?:\[[A-Za-z_ -]+\]\s*)?([\s\S]*?)\s*</d>", s, re.I)
+    if m_d:
+        s = m_d.group(1).strip()
+    return s
 VOICED_TAGS = frozenset({"VO", "OS"})
 
 
@@ -177,10 +208,11 @@ def parse_screenplay(text: str) -> dict[str, Any]:
                 current["blocks"].append({"k": "tag", "tag": tag.group("tag"), "text": body})
             continue
         dialogue = DIALOGUE_RE.fullmatch(paragraph)
-        if dialogue:
+        if dialogue and _looks_like_speaker(dialogue.group("speaker")):
+            who_c, tag_c = _clean_speaker_and_tag(dialogue.group("speaker"))
             current["blocks"].append({
-                "k": "line", "tag": "", "who": dialogue.group("speaker"),
-                "paren": dialogue.group("cue") or "", "text": dialogue.group("text").strip(),
+                "k": "line", "tag": tag_c, "who": who_c,
+                "paren": dialogue.group("cue") or "", "text": _unwrap_dialogue_display(dialogue.group("text")),
             })
             continue
         current["blocks"].append({"k": "action", "text": paragraph})
@@ -190,6 +222,11 @@ def parse_screenplay(text: str) -> dict[str, Any]:
         cur_alt = None
         sc_idx = 0
         for paragraph in _paragraphs(text):
+            if paragraph.startswith("### ") and cur_alt is not None:
+                beat_lbl = re.sub(r"^#{2,4}\s*", "", paragraph).strip()
+                if re.match(r"^(?:阶段|节拍|Part|Beat|Stage)", beat_lbl, re.I):
+                    cur_alt["blocks"].append({"k": "tag", "tag": "连续性", "text": beat_lbl})
+                    continue
             if paragraph.startswith("## ") or paragraph.startswith("### ") or re.match(r"^(?:EP\d+-)?SC\d+\b", paragraph):
                 if any(k in paragraph for k in ("场景", "场次", "SC", "序幕", "尾声", "终章", "第", "幕")) and "剧本正文" not in paragraph and "核心人物" not in paragraph:
                     sc_idx += 1
@@ -214,10 +251,11 @@ def parse_screenplay(text: str) -> dict[str, Any]:
                 if cleaned.startswith("**出场资产**"):
                     continue
                 d_m = DIALOGUE_RE.match(cleaned)
-                if d_m:
+                if d_m and _looks_like_speaker(d_m.group("speaker")):
+                    who_c, tag_c = _clean_speaker_and_tag(d_m.group("speaker"))
                     cur_alt["blocks"].append({
-                        "k": "line", "tag": "", "who": d_m.group("speaker"),
-                        "paren": (d_m.group("cue") or "").strip(), "text": d_m.group("text").strip(),
+                        "k": "line", "tag": tag_c, "who": who_c,
+                        "paren": (d_m.group("cue") or "").strip(), "text": _unwrap_dialogue_display(d_m.group("text")),
                     })
                 elif cleaned:
                     cur_alt["blocks"].append({"k": "action", "text": cleaned})
@@ -233,10 +271,11 @@ def parse_screenplay(text: str) -> dict[str, Any]:
             if not cleaned:
                 continue
             d_m = DIALOGUE_RE.match(cleaned)
-            if d_m:
+            if d_m and _looks_like_speaker(d_m.group("speaker")):
+                who_c, tag_c = _clean_speaker_and_tag(d_m.group("speaker"))
                 fallback_blocks.append({
-                    "k": "line", "tag": "", "who": d_m.group("speaker"),
-                    "paren": (d_m.group("cue") or "").strip(), "text": d_m.group("text").strip(),
+                    "k": "line", "tag": tag_c, "who": who_c,
+                    "paren": (d_m.group("cue") or "").strip(), "text": _unwrap_dialogue_display(d_m.group("text")),
                 })
             else:
                 fallback_blocks.append({"k": "action", "text": cleaned})

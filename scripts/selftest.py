@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-吞鲸宝典 v4.7.0 · 跨机权威完整性自检器 (WhaleDigest Master Self-Test)
+吞鲸宝典 v4.7.1 · 跨机权威完整性自检器 (WhaleDigest Master Self-Test)
 全部采用相对路径（可移植到任何机器、任何目录），一次性核验：
 1. 全部 28 个核心文件存在且非空
 2. 3 个吞鲸内置真源 JSON 结构合法（55 套姿势 / 40 条换位配方 / 9 套转换模板）
@@ -101,7 +101,7 @@ REQUIRED_FILES = [
 
 def main():
     print("=" * 65)
-    print("🐳 吞鲸宝典 v4.7.0 · 跨机权威母版完整性自检")
+    print("🐳 吞鲸宝典 v4.7.1 · 跨机权威母版完整性自检")
     print(f"当前挂载路径: {SKILL_DIR}")
     print("=" * 65)
 

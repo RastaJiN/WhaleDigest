@@ -91,6 +91,31 @@ DETACH_TIMEOUT_SECONDS = 20.0
 STOP_TIMEOUT_SECONDS = 10.0
 STATIC_ROOT = Path(__file__).resolve().parent.parent.parent / "assets/dashboard"
 
+DASHBOARD_SERVER_VERSION = "4.7.1"
+
+
+def code_fingerprint() -> str:
+    """Hash core dashboard server, parser, and static asset bytes to detect stale servers."""
+    h = hashlib.sha256()
+    here = Path(__file__).resolve()
+    candidates = [
+        here,
+        here.with_name("creator_views.py"),
+        here.with_name("creator_markdown_check.py"),
+        here.with_name("project_tool.py"),
+        STATIC_ROOT / "index.html",
+        STATIC_ROOT / "app.js",
+        STATIC_ROOT / "styles.css",
+        STATIC_ROOT / "tokens.css",
+    ]
+    for fp in candidates:
+        try:
+            h.update(fp.name.encode("utf-8"))
+            h.update(fp.read_bytes())
+        except OSError:
+            pass
+    return h.hexdigest()[:16]
+
 # Windows opens files in text mode unless told otherwise, which would rewrite
 # every newline and break the SHA-256 versions the editor round-trips on.
 BINARY = getattr(os, "O_BINARY", 0)
@@ -625,6 +650,56 @@ class ProjectStore:
             yield directory, display
         finally:
             directory.close()
+
+
+    def live_signature(self, project_id: str | None = None) -> dict[str, Any]:
+        """Fast stat-only digest for automatic UI synchronization without full file reads."""
+        skip_dirs = {".short-drama", "__pycache__", ".git", "cache", "tmp"}
+        def dir_sig(root_path: Path, max_d: int = 4) -> str:
+            rows: list[str] = []
+            def walk_fs(cur: Path, rel_pfx: str, depth: int) -> None:
+                if depth > max_d or len(rows) > 1500:
+                    return
+                try:
+                    with os.scandir(cur) as it:
+                        entries = sorted(it, key=lambda e: e.name.casefold())
+                except OSError:
+                    return
+                for ent in entries:
+                    if ent.name in skip_dirs or ent.name == "dashboard.log":
+                        continue
+                    rel = f"{rel_pfx}/{ent.name}" if rel_pfx else ent.name
+                    try:
+                        st = ent.stat(follow_symlinks=False)
+                    except OSError:
+                        continue
+                    if stat.S_ISLNK(st.st_mode):
+                        continue
+                    if stat.S_ISDIR(st.st_mode):
+                        rows.append(f"D:{rel}")
+                        walk_fs(cur / ent.name, rel, depth + 1)
+                    elif stat.S_ISREG(st.st_mode):
+                        rows.append(f"F:{rel}:{st.st_size}:{st.st_mtime_ns}")
+            walk_fs(root_path, "", 0)
+            return hashlib.sha256("\n".join(rows).encode("utf-8")).hexdigest()[:16]
+
+        projects, _ = self.discover()
+        projects_sig = hashlib.sha256(
+            json.dumps(projects, ensure_ascii=False, sort_keys=True).encode("utf-8")
+        ).hexdigest()[:16]
+        proj_sig = projects_sig
+        if project_id:
+            sel = next((p for p in projects if p["id"] == project_id), None)
+            if sel is not None:
+                rel_p = sel["path"]
+                target_root = self.workspace if rel_p == "." else (self.workspace / rel_p)
+                proj_sig = dir_sig(target_root)
+        return {
+            "projects_sig": projects_sig,
+            "project_sig": proj_sig,
+            "code_fingerprint": code_fingerprint(),
+            "server_version": DASHBOARD_SERVER_VERSION,
+        }
 
     def status(self, project_id: str) -> dict[str, Any]:
         with self._pinned_project(project_id) as (directory, root):
@@ -1484,6 +1559,10 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                     HTTPStatus.OK, self.server.store.status(self._one(query, "project"))
                 )
                 return
+            if path == "/api/live_signature":
+                pid_q = (query.get("project") or [""])[0] or None
+                self._json(HTTPStatus.OK, self.server.store.live_signature(pid_q))
+                return
             if path == "/api/tree":
                 self._json(
                     HTTPStatus.OK, self.server.store.tree(self._one(query, "project"))
@@ -2143,6 +2222,14 @@ def main(argv: list[str] | None = None) -> int:
             status["url"] = session["url"]
             status["pid"] = session["pid"]
             status["brand"] = session.get("brand")
+            status["server_version"] = session.get("server_version")
+            status["code_fingerprint"] = session.get("code_fingerprint")
+            status["current_code_fingerprint"] = code_fingerprint()
+            status["stale"] = (
+                session.get("brand") != "tunjing-baodian"
+                or session.get("code_fingerprint") != code_fingerprint()
+                or session.get("server_version") != DASHBOARD_SERVER_VERSION
+            )
             recorded = session.get("workspace")
             if not mine:
                 # The record is live but describes a different workspace.
@@ -2161,7 +2248,12 @@ def main(argv: list[str] | None = None) -> int:
         and session_matches(existing, workspace)
         and session_is_live(session_path)
     ):
-        if args.restart or existing.get("brand") != "tunjing-baodian":
+        if (
+            args.restart
+            or existing.get("brand") != "tunjing-baodian"
+            or existing.get("code_fingerprint") != code_fingerprint()
+            or existing.get("server_version") != DASHBOARD_SERVER_VERSION
+        ):
             stop_session(session_path)
         else:
             url = str(existing["url"])
@@ -2246,6 +2338,8 @@ def main(argv: list[str] | None = None) -> int:
                     {
                         "schema_version": SESSION_SCHEMA,
                         "brand": "tunjing-baodian",
+                        "server_version": DASHBOARD_SERVER_VERSION,
+                        "code_fingerprint": code_fingerprint(),
                         "workspace": str(workspace),
                         "fingerprint": server.workspace_fingerprint,
                         "host": host,

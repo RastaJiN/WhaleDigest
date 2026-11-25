@@ -239,5 +239,56 @@ class FullRefactorV5Test(unittest.TestCase):
             self.assertIn("林川.png", shot2_ref_names)
 
 
+    def test_merged_bold_dtag_intake_and_live_signature(self):
+        import dashboard_server as ds
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            raw = root / "merged_dramas.md"
+            raw.write_text(
+                "# 《双城测试》EP001—EP002 合并剧本\n\n"
+                "## 人物与关系\n\n- **沈默**：男主。\n\n---\n\n"
+                "# EP001《走廊》\n\n> 两幕结构。\n\n"
+                "## 第一幕 · 递卡：平静下的刀锋\n\n"
+                "### 阶段一 · 走廊对峙\n\n"
+                "**沈默：** `<d>[Chinese]这是今晚的门卡。</d>`\n\n"
+                "**林清：** `<d>[Chinese]你确定？</d>`\n\n"
+                "林清面部近景：下颌绷紧，眼神明显不悦。\n\n"
+                "# EP002《书房》\n\n## 第一幕 · 深夜书房\n\n"
+                "**林清 OS：** `<d>[Chinese]我应该立刻离开。</d>`\n",
+                encoding="utf-8",
+            )
+            proj = root / "proj_live"
+            subprocess.run([sys.executable, str(ROOT / "scripts/sd_core/project_tool.py"), "init", str(proj), "--title", "实时同步剧", "--aspect-ratio", "16:9", "--episode-count", "2", "--target-seconds", "120"], check=True, capture_output=True)
+            res = intake.run_intake(raw, proj, apply=True, auto_dashboard=False)
+            self.assertEqual([e["episode_id"] for e in res["episodes"]], ["EP001", "EP002"])
+            self.assertTrue(res["has_preamble"])
+            for ep in res["episodes"]:
+                inc = ep["estimate"].get("incomplete")
+                self.assertIsNone(inc, f"{ep['episode_id']} should have clean index: {inc}")
+
+            ep1_ps = creator_views.parse_screenplay((proj / "剧集/EP001/剧本.md").read_text(encoding="utf-8"))
+            spks = {b["who"] for sc in ep1_ps["scenes"] for b in sc["blocks"] if b["k"] == "line"}
+            self.assertEqual(spks, {"沈默", "林清"})
+            self.assertNotIn("<d>", json.dumps(ep1_ps, ensure_ascii=False))
+
+            ep2_ps = creator_views.parse_screenplay((proj / "剧集/EP002/剧本.md").read_text(encoding="utf-8"))
+            os_lines = [b for sc in ep2_ps["scenes"] for b in sc["blocks"] if b["k"] == "line" and b["tag"] == "OS"]
+            self.assertEqual(len(os_lines), 1)
+            self.assertEqual(os_lines[0]["who"], "林清")
+
+            # Live signature changes automatically when a new file appears on disk
+            store = ds.ProjectStore(proj, ds.load_project_tool(ROOT))
+            try:
+                projs, _ = store.discover()
+                pid = projs[0]["id"]
+                sig1 = store.live_signature(pid)
+                (proj / "剧集/EP001/视觉设定.md").write_text("# 设定\n\n## 人物 · 沈默\n- 造型：西装。\n", encoding="utf-8")
+                sig2 = store.live_signature(pid)
+                self.assertNotEqual(sig1["project_sig"], sig2["project_sig"])
+                self.assertTrue(sig2["code_fingerprint"])
+            finally:
+                store.close()
+
+
 if __name__ == "__main__":
     unittest.main()

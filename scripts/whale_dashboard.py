@@ -143,13 +143,15 @@ def auto_start_dashboard(project_dir, open_browser: bool = True):
         try:
             info = json.loads(st.stdout)
             url = info.get("url")
-            if url and info.get("brand") == "tunjing-baodian":
+            if url and info.get("brand") == "tunjing-baodian" and not info.get("stale"):
                 print(f"[工作台] 检测到剧本已就绪，复用在线工作台: {url}")
                 return url
+            if info.get("stale"):
+                print("[工作台] 检测到后台运行着旧版本工作台，自动重启为最新版...")
         except Exception:
             pass
 
-    cmd = [sys.executable, str(DASHBOARD_SERVER), "--workspace", str(ws), "--port", "0", "--detach"]
+    cmd = [sys.executable, str(DASHBOARD_SERVER), "--workspace", str(ws), "--port", "0", "--detach", "--restart"]
     if open_browser:
         cmd.append("--open")
     r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", timeout=15)

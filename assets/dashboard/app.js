@@ -752,6 +752,10 @@ const S = {
   renderSequence: 0,
   pendingLine: null,
   palette: { sel: 0, items: [], scope: "ep", timer: null, sequence: 0 },
+  liveSig: "",
+  projectsSig: "",
+  liveTimer: null,
+  liveBusy: false,
 };
 
 async function api(path, options) {
@@ -1687,7 +1691,11 @@ async function save() {
     $("#editState").textContent = `已保存 · ${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
     setDirty(!savedContentIsCurrent(content, editor.value));
     toast("已保存。结构视图会按新内容重新读取。");
-    try { await refreshProject(); } catch (_error) { toast("内容已保存，但刷新失败，请稍后重试"); }
+    try {
+      await refreshProject();
+      const sig = await api(`/api/live_signature?${query({ project: S.project })}`).catch(() => null);
+      if (sig) { S.liveSig = sig.project_sig || ""; S.projectsSig = sig.projects_sig || ""; }
+    } catch (_error) { toast("内容已保存，但刷新失败，请稍后重试"); }
   } catch (error) {
     if (S.edit !== edit) return;
     edit.saving = false;
@@ -2033,6 +2041,11 @@ async function boot() {
     const id = S.projects.some((project) => project.id === remembered) ? remembered : S.projects[0].id;
     await loadProject(id);
     S.status = await api(`/api/status?${query({ project: id })}`).catch(() => null);
+    try {
+      const sig = await api(`/api/live_signature?${query({ project: id })}`);
+      S.liveSig = sig.project_sig || "";
+      S.projectsSig = sig.projects_sig || "";
+    } catch (_e) {}
     S.lastHash = location.hash;
     await render();
   } catch (error) {
@@ -2042,9 +2055,57 @@ async function boot() {
 
 /** Documents are written in the conversation, not here: reread them when the creator comes back to this tab. */
 async function refreshOnReturn() {
-  if (!S.project || parseRoute(location.hash).page === "edit") return;
-  try { await refreshProject(); } catch (_error) { return; }
+  if (!S.project || S.edit?.dirty) return;
+  try {
+    await refreshProject();
+    const sig = await api(`/api/live_signature?${query({ project: S.project })}`).catch(() => null);
+    if (sig) { S.liveSig = sig.project_sig || ""; S.projectsSig = sig.projects_sig || ""; }
+  } catch (_error) { return; }
   render();
+}
+
+async function pollLiveSync() {
+  if (S.liveBusy || document.visibilityState !== "visible" || !S.project) return;
+  S.liveBusy = true;
+  try {
+    const sig = await api(`/api/live_signature?${query({ project: S.project })}`);
+    const nextPSig = sig.projects_sig || "";
+    const nextSig = sig.project_sig || "";
+    const projChanged = Boolean(S.projectsSig && nextPSig && nextPSig !== S.projectsSig);
+    const filesChanged = Boolean(S.liveSig && nextSig && nextSig !== S.liveSig);
+    if (!projChanged && !filesChanged) {
+      if (!S.liveSig) S.liveSig = nextSig;
+      if (!S.projectsSig) S.projectsSig = nextPSig;
+      return;
+    }
+    S.projectsSig = nextPSig;
+    S.liveSig = nextSig;
+    if (S.edit?.dirty) {
+      toast("磁盘文件已更新，点「载入最新版本」同步。");
+      return;
+    }
+    const sx = window.scrollX || 0;
+    const sy = window.scrollY || 0;
+    if (projChanged) {
+      const pdata = await api("/api/projects").catch(() => null);
+      if (pdata && Array.isArray(pdata.projects)) {
+        S.projects = pdata.projects;
+        if (!S.projects.some((p) => p.id === S.project) && S.projects.length) {
+          S.project = S.projects[0].id;
+        }
+      }
+    }
+    window.__WHALE_EP_POSES = {};
+    try { window.__WHALE_META = await api("/api/whale/shot"); } catch (_e) {}
+    await refreshProject();
+    S.status = await api(`/api/status?${query({ project: S.project })}`).catch(() => S.status);
+    await render();
+    window.scrollTo(sx, sy);
+  } catch (_error) {
+    /* keep silent if server is briefly restarting */
+  } finally {
+    S.liveBusy = false;
+  }
 }
 
 function start() {
@@ -2054,6 +2115,7 @@ function start() {
   document.addEventListener("change", (event) => { if (event.target.id === "projectSelect") selectProject(event.target.value); });
   addEventListener("hashchange", onHashChange);
   document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") refreshOnReturn(); });
+  if (!S.liveTimer) S.liveTimer = setInterval(pollLiveSync, 2500);
   addEventListener("beforeunload", (event) => { if (S.edit?.dirty) { event.preventDefault(); event.returnValue = ""; } });
   if (typeof matchMedia === "function") matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => { if (S.theme === "auto") renderTop(parseRoute(location.hash)); });
   boot();

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-吞鲸宝典 v4.7.0 · ComfyUI 全自动后台批跑与微创重摇点火器 (WhaleDigest v4.7.0 Auto-Runner & Surgical Re-roller)
+吞鲸宝典 v4.7.1 · ComfyUI 全自动后台批跑与微创重摇点火器 (WhaleDigest v4.7.1 Auto-Runner & Surgical Re-roller)
 
 核心能力：
 1. 断点续跑 (Checkpoint Resume)：崩溃或中断后重启自动跳过已落盘合格镜头，绝不重头白跑。
@@ -424,7 +424,7 @@ def parse_reroll_targets(reroll_str):
 
 
 def main():
-    ap = argparse.ArgumentParser(description="吞鲸 v4.7.0 ComfyUI 全自动后台批跑与微创重摇点火器")
+    ap = argparse.ArgumentParser(description="吞鲸 v4.7.1 ComfyUI 全自动后台批跑与微创重摇点火器")
     ap.add_argument("project_dir", help="项目目录（内含 批量任务.json）")
     ap.add_argument("--dry-build", action="store_true", help="仅在本地生成逐镜就绪的 API JSON 包与跨集账本")
     selection = ap.add_mutually_exclusive_group()
@@ -520,7 +520,7 @@ def main():
         with open(out_p, "w", encoding="utf-8") as f:
             json.dump(wf, f, ensure_ascii=False, indent=2)
 
-    print(f"[✓] 已在 {payload_dir} 生成 {len(shots)} 份吞鲸 v4.7.0 逐镜 API 负载（已完成 LoRA 文肉分级与空间图池绑定）。")
+    print(f"[✓] 已在 {payload_dir} 生成 {len(shots)} 份吞鲸 v4.7.1 逐镜 API 负载（已完成 LoRA 文肉分级与空间图池绑定）。")
     if args.dry_build:
         return
 

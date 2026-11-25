@@ -132,6 +132,12 @@ def main():
     except Exception:
         pass
 
+    try:
+        from whale_dashboard import auto_start_dashboard
+        auto_start_dashboard(project_dir, open_browser=True)
+    except Exception:
+        pass
+
     # ── 画幅显式确认：接手项目时优先读取已有 .whale_project.json / 批量任务.json 的 aspect；仍未指定则直接停止要求确认 ──
     resolved_aspect = (args.aspect or "").strip()
     if not resolved_aspect:

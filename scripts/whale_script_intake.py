@@ -37,7 +37,7 @@ import episode_intake as ep_intake
 
 CHINESE_DIGITS = ep_intake.CHINESE_DIGITS
 EP_SPLIT_RE = re.compile(
-    r"^[ \t\u3000]*(?:#{1,3}[ \t]+)?(?:第\s*([0-9]+|[零一二三四五六七八九十百千两]+)\s*集|EP\s*([0-9]{1,4})|Episode\s+([0-9]{1,4}))(?:[ \t\u3000·:：—-]+([^\r\n]*))?$",
+    r"^[ \t\u3000]*(?:#{1,3}[ \t]+)?(?:第\s*([0-9]+|[零一二三四五六七八九十百千两]+)\s*集|EP\s*([0-9]{1,4})|Episode\s+([0-9]{1,4}))(?=[ \t\u3000·:：—《「【(（]|$)(?:[ \t\u3000·:：—-]+([^\r\n]*)|([《「【(（][^\r\n]*))?$",
     re.IGNORECASE | re.MULTILINE,
 )
 STD_SCENE_RE = re.compile(
@@ -54,17 +54,17 @@ ALT_SCENE_PATTERNS = [
     re.compile(r"^【\s*(?:场景|场次)\s*】\s*(.+)$"),
 ]
 VOICE_TAG_INLINE_RE = re.compile(
-    r"^(?:\*\*)?(?P<speaker>[^：:*（）()\[\]#\r\n]{1,32}?)(?:\*\*)?\s*[（(](?P<tag>VO|OS|旁白|画外音|画外|内心|混响|心声|语音|电话|录音|V\.O\.|O\.S\.)[）)]\s*[：:]\s*(?P<text>.+)$",
+    r"^(?:\*\*)?(?P<speaker>[^：:*（）()\[\]#\s]{1,24})(?:\s*[（(]?|\s+)(?P<tag>VO|OS|旁白|画外音|画外|内心|混响|心声|语音|电话|录音|V\.O\.|O\.S\.)[）)]?\s*(?:[：:]\s*\*\*|\*\*\s*[：:]|[：:])\s*(?P<text>.+)$",
     re.I,
 )
 BRACKET_SPEAKER_RE = re.compile(
     r"^【\s*(?P<speaker>[^】]{1,32}?)\s*】\s*(?:[（(](?P<cue>[^）)]+)[）)])?\s*[：:]?\s*(?P<text>.+)$"
 )
 BOLD_SPEAKER_RE = re.compile(
-    r"^\*\*(?P<speaker>[^*\r\n]{1,32}?)\*\*\s*(?:[（(](?P<cue>[^）)]+)[）)])?\s*[：:]\s*(?P<text>.+)$"
+    r"^\*\*(?P<speaker>[^*：:\r\n（）()]{1,24}?)(?:[（(](?P<cue>[^）)]+)[）)])?(?:[：:]\*\*|\*\*\s*[（(](?P<cue2>[^）)]+)[）)]\s*[：:]|\*\*\s*[：:])\s*(?P<text>.+)$"
 )
 PLAIN_SPEAKER_RE = re.compile(
-    r"^(?P<speaker>[^\s：:（）()\[\]#*]{1,24})(?:[（(](?P<cue>[^）)\r\n]{1,30})[）)])?\s*[：:]\s*(?P<text>.+)$"
+    r"^(?P<speaker>[^\s：:（）()\[\]#*，。！？；、.!?,]{1,14})(?:[（(](?P<cue>[^）)\r\n]{1,30})[）)])?\s*[：:]\s*(?P<text>.+)$"
 )
 PROD_BRACKET_RE = re.compile(
     r"^(?:\[|【)\s*(VO|OS|SFX|音效|画面文字|字幕|连续性|转场)(?:\s*(?:\]|】)\s*[：:]?\s*|\s*[：:]\s*([^\]】]+)\s*(?:\]|】)\s*$)(.*)$",
@@ -115,6 +115,11 @@ def read_source_text(path: Path) -> tuple[bytes, str, str]:
 
 def _strip_outer_quotes(text: str) -> str:
     s = text.strip()
+    if len(s) >= 2 and s[0] == "`" and s[-1] == "`":
+        s = s[1:-1].strip()
+    m_d = re.fullmatch(r"<d>\s*(?:\[[A-Za-z_ -]+\]\s*)?([\s\S]*?)\s*</d>", s, re.I)
+    if m_d:
+        s = m_d.group(1).strip()
     if len(s) >= 2 and ((s[0] == "「" and s[-1] == "」") or (s[0] == "“" and s[-1] == "”") or (s[0] == '"' and s[-1] == '"')):
         return s[1:-1].strip()
     return s
@@ -174,12 +179,22 @@ def _parse_scene_meta(raw: str, fallback_idx: int) -> tuple[str, str, str]:
 
 
 def _is_non_dialogue_label(label: str) -> bool:
-    low = label.strip().lower()
-    return low in {
+    s = re.sub(r"^\*+|\*+$", "", label.strip())
+    low = s.lower()
+    if low in {
         "时间", "地点", "人物", "角色", "场景", "时长", "景别", "机位", "运镜", "备注", "提示",
         "画面", "动作", "出场资产", "核心人物", "剧情梗概", "目标", "阻碍", "冲突", "状态",
-        "人物表", "分集", "集名", "标题", "副标题",
-    }
+        "人物表", "分集", "集名", "标题", "副标题", "关系底线", "结局", "结尾",
+        "面部近景", "近景", "特写", "全景", "中景",
+    }:
+        return True
+    if re.fullmatch(r"ep\d+结尾|第.+[幕场集]结束", low):
+        return True
+    if any(s.endswith(sfx) for sfx in ("近景", "特写", "远景", "全景", "中景", "结尾", "几步", "底线", "场面", "瞬间", "如下", "反应")):
+        return True
+    if len(s) > 6 and any(w in s for w in ("的", "了", "着", "在", "把", "被", "从", "向", "分成")):
+        return True
+    return False
 
 
 def normalize_episode_markdown(ep_id: str, title: str, raw_text: str) -> dict[str, Any]:
@@ -258,6 +273,14 @@ def normalize_episode_markdown(ep_id: str, title: str, raw_text: str) -> dict[st
             out_lines.append("")
             continue
 
+        # Leading blockquote summary under `# EP001` stored as clean comment so screenplay_index sees 0 out-of-scene blocks
+        if current_sc == 0 and stripped.startswith(">"):
+            note_body = stripped.lstrip("> ").strip()
+            out_lines.append(f"<!-- 集摘要: {note_body} -->")
+            out_lines.append("")
+            preserved_markdown += 1
+            continue
+
         # Ensure at least one scene exists before body blocks
         if current_sc == 0:
             current_sc = 1
@@ -265,8 +288,14 @@ def normalize_episode_markdown(ep_id: str, title: str, raw_text: str) -> dict[st
             out_lines.append(f"## {ep_norm}-SC001 内 · 正片场次 · 日")
             out_lines.append("")
 
-        # Ignore pure metadata lines like "**出场资产**：..." or Markdown headings that aren't scenes
+        # Sub-beats inside a scene (### 阶段一 · ... / ### 节拍二 · ...) -> clean [连续性] tag
         if stripped.startswith("#"):
+            beat_txt = re.sub(r"^#{2,4}\s*", "", stripped).strip()
+            if re.match(r"^(?:阶段|节拍|Part|Beat|Stage)[一二三四五六七八九十百0-9\s·:：-]", beat_txt, re.I):
+                out_lines.append(f"[连续性] {beat_txt}")
+                out_lines.append("")
+                tags_converted += 1
+                continue
             preserved_markdown += 1
             unmapped_lines.append({"line": lineno, "text": stripped[:80], "reason": "非场景子标题已注释保留"})
             out_lines.append(f"<!-- {stripped} -->")
@@ -364,11 +393,11 @@ def normalize_episode_markdown(ep_id: str, title: str, raw_text: str) -> dict[st
             dialogues_converted += 1
             continue
 
-        # Bold speaker: **林川**：台词
+        # Bold speaker: **林川**：台词 or **林川：** 台词
         m_bold = BOLD_SPEAKER_RE.match(clean_line)
         if m_bold and not _is_non_dialogue_label(m_bold.group("speaker")):
             spk = m_bold.group("speaker").strip()
-            cue = (m_bold.group("cue") or "").strip()
+            cue = (m_bold.group("cue") or m_bold.group("cue2") or "").strip()
             txt = _strip_outer_quotes(m_bold.group("text"))
             if spk == "旁白":
                 out_lines.append(f"[VO] 旁白：{txt}")
@@ -398,8 +427,11 @@ def normalize_episode_markdown(ep_id: str, title: str, raw_text: str) -> dict[st
             dialogues_converted += 1
             continue
 
-        # Plain action / narrative paragraph
-        out_lines.append(clean_line)
+        # Plain action / narrative paragraph (turn descriptive colon into em-dash so index never misreads narrative as speaker)
+        safe_action = re.sub(r"^(\*\*[^*\r\n]{1,24}\*\*)\s*[：:]\s*", lambda m: m.group(1).strip("*") + "——", clean_line)
+        if re.match(r"^[^：:\r\n]{1,40}[：:]", safe_action):
+            safe_action = safe_action.replace("：", "——", 1)
+        out_lines.append(safe_action)
         out_lines.append("")
         actions_converted += 1
 
@@ -439,7 +471,7 @@ def extract_preamble_and_episodes(text: str, default_ep: str = "EP001") -> tuple
         else:
             ep_num = ep_intake.chinese_to_int(num_str) or (idx + 1)
         ep_id = f"EP{ep_num:03d}"
-        ep_title = (m.group(4) or "").strip()
+        ep_title = (m.group(4) or m.group(5) or "").strip()
         start = m.end()
         end = matches[idx + 1].start() if idx + 1 < len(matches) else len(text)
         body = text[start:end].strip()
@@ -459,6 +491,7 @@ def run_intake(
     *,
     apply: bool = False,
     default_ep: str = "EP001",
+    auto_dashboard: bool = True,
 ) -> dict[str, Any]:
     raw_bytes, text, encoding = read_source_text(source_path)
     sha256 = hashlib.sha256(raw_bytes).hexdigest()
@@ -527,9 +560,12 @@ def run_intake(
             out_md.write_text(item["markdown"], encoding="utf-8")
             written_files.append(str(out_md.relative_to(project_dir)).replace("\\", "/"))
 
+        dashboard_url = None
         try:
-            from whale_dashboard import ensure_project_registered
-            ensure_project_registered(str(project_dir))
+            from whale_dashboard import ensure_project_registered, auto_start_dashboard
+            ensure_project_registered(project_dir)
+            if auto_dashboard:
+                dashboard_url = auto_start_dashboard(project_dir, open_browser=True)
         except Exception:
             pass
 
@@ -540,6 +576,7 @@ def run_intake(
         "encoding": encoding,
         "sha256": sha256,
         "backup_file": backup_file,
+        "dashboard_url": dashboard_url if apply else None,
         "has_preamble": bool(preamble),
         "preamble_lines": len(preamble.splitlines()) if preamble else 0,
         "episodes": [
@@ -557,7 +594,7 @@ def run_intake(
 
 
 
-def normalize_workspace_scripts(project_dir: Path, *, apply: bool = False) -> dict[str, Any]:
+def normalize_workspace_scripts(project_dir: Path, *, apply: bool = False, auto_dashboard: bool = True) -> dict[str, Any]:
     """扫描项目 `剧集/*/剧本.md` 与根目录 `剧本.md`，对非规范剧本做「不改台词」结构统一并备份原稿。"""
     project_dir = project_dir.resolve()
     targets: list[tuple[str, Path]] = []
@@ -590,7 +627,15 @@ def normalize_workspace_scripts(project_dir: Path, *, apply: bool = False) -> di
             "changed": changed,
             "stats": norm["stats"],
         })
-    return {"ok": True, "mode": "apply" if apply else "dry_run", "files": items}
+    dashboard_url = None
+    if apply and auto_dashboard:
+        try:
+            from whale_dashboard import ensure_project_registered, auto_start_dashboard
+            ensure_project_registered(project_dir)
+            dashboard_url = auto_start_dashboard(project_dir, open_browser=True)
+        except Exception:
+            pass
+    return {"ok": True, "mode": "apply" if apply else "dry_run", "dashboard_url": dashboard_url, "files": items}
 
 
 def main():
@@ -600,14 +645,16 @@ def main():
     ap.add_argument("--ep", default="EP001", help="单集未写集号时的默认集号（默认 EP001）")
     ap.add_argument("--standardize-workspace", action="store_true", help="对项目内现有非规范 剧本.md 做原件备份并统一结构")
     ap.add_argument("--apply", action="store_true", help="确认写入 剧集/<EP>/剧本.md 并备份原稿到 输入/；不加则仅预览不落盘")
+    ap.add_argument("--no-dashboard", action="store_true", help="落盘后不自动拉起本地工作台")
     args = ap.parse_args()
 
+    auto_dash = not args.no_dashboard
     if args.standardize_workspace:
-        res = normalize_workspace_scripts(Path(args.project).resolve(), apply=args.apply)
+        res = normalize_workspace_scripts(Path(args.project).resolve(), apply=args.apply, auto_dashboard=auto_dash)
     else:
         if not args.source:
             ap.error("请提供待导入的原始剧本路径，或使用 --standardize-workspace")
-        res = run_intake(Path(args.source).resolve(), Path(args.project).resolve(), apply=args.apply, default_ep=args.ep)
+        res = run_intake(Path(args.source).resolve(), Path(args.project).resolve(), apply=args.apply, default_ep=args.ep, auto_dashboard=auto_dash)
     print(json.dumps(res, ensure_ascii=False, indent=2))
 
 
