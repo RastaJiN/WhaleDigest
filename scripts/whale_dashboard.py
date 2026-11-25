@@ -145,6 +145,12 @@ def auto_start_dashboard(project_dir, open_browser: bool = True):
             url = info.get("url")
             if url and info.get("brand") == "tunjing-baodian" and not info.get("stale"):
                 print(f"[工作台] 检测到剧本已就绪，复用在线工作台: {url}")
+                if open_browser:
+                    try:
+                        import webbrowser
+                        webbrowser.open(url)
+                    except Exception:
+                        pass
                 return url
             if info.get("stale"):
                 print("[工作台] 检测到后台运行着旧版本工作台，自动重启为最新版...")
