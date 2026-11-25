@@ -986,7 +986,12 @@ def save_project_artifacts(out_dir, shots, actual_total, want_total, lines="",
     elif wardrobe_mode == "dressed_all":
         is_nude_state = False
 
+    prev_scene_id = None
     for i, s in enumerate(shots, 1):
+        cur_scene_id = s.get("scene_id")
+        if cur_scene_id and cur_scene_id != prev_scene_id and not wardrobe_mode and detected_mode != "standard_drama":
+            is_nude_state = False
+        prev_scene_id = cur_scene_id or prev_scene_id
         size_desc_zh = _sz_zh[s["size"]]
         cam_desc_zh = _cams_zh.get(s["cam"], s["cam"])
         size_desc_en = _sz_en[s["size"]]

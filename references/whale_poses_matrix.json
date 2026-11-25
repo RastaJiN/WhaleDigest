@@ -296,8 +296,8 @@
     "nameZh": "女骑乘直立上身",
     "nameEn": "Upright cowgirl",
     "category": "骑乘与坐姿",
-    "framingZh": "第一人称POV中近景（镜头=仰卧男人的双眼，从他胸口向上看；她面对镜头上身直立跨坐；腰腹到交合处；看得见阴茎插入阴道；绝不出现男脸）",
-    "framingEn": "First-person POV: man supine, she straddles facing him with upright torso",
+    "framingZh": "第三人称双人同框中近景（男方仰卧，女方跨坐其上、上身直立，两人正面相对、可十指交扣，腰腹到交合处清晰可见）",
+    "framingEn": "Third-person two-shot medium close-up: S2 lies supine, S1 straddles him facing him with upright torso, both performers clearly visible in frame (hands/fingers may interlock), hips and junction visible",
     "beatsZh": [
       "空间锁死：男子A仰卧在床上，双臂在身体两侧不扶腰；女子A面对面跨坐在他腰腹上方（面向他），上身直立挺直、腰背挺起（禁止前倾、禁止趴伏），双手撑在他胸口或扶自己大腿。她用手扶阴茎抵住穴口后整根坐下；镜头从他胸口高度向上看，清楚看见阴茎没入阴道",
       "她保持上身直立，主动上下起落，大部分保持体内，进出清晰可见；胸部随动作上下晃动，臀肉颤；男子A双手不扶腰、髋部可轻顶；禁止悬空阴茎、禁止上身前倾趴伏",
@@ -315,7 +315,12 @@
     ],
     "sfxEn": [],
     "lineZh": "嗯，啊，嗯，啊，",
-    "lineEn": "Mmm… ah… mmm…"
+    "lineEn": "Mmm… ah… mmm…",
+    "allowed_cameras": [
+      "push_tension",
+      "low_upward",
+      "handheld_breath"
+    ]
   },
   "reverse_cowgirl": {
     "id": "reverse_cowgirl",
@@ -752,7 +757,7 @@
     "nameEn": "Standing doggy wall",
     "category": "后入与俯卧",
     "framingZh": "中景侧后（两人皆站立；他站在她身后；墙+臀+交合处；看得见阴茎插入阴道；禁止男跪/男坐）",
-    "framingEn": "MS rear-side (wall + hips + junction)",
+    "framingEn": "MS rear-side three-quarter view: S1 stands leaning forward with both hands braced against the wall, S2 stands close behind her holding her hips/waist, wall + hips + junction clearly visible",
     "beatsZh": [
       "站立后入：男子A站立在女子A身后（双脚踩地站稳，禁止跪/坐）；女子A面向墙壁双手撑墙（掌心贴墙、手指张开，不要自然下垂），双脚站立微屈膝、微塌腰抬臀；男子双手扶她腰；阴茎已整根没入阴道，进出结合处可见",
       "站立后入稳态抽插：两人皆保持站立；阴茎进出清晰，她双手持续撑墙受力，臀波明显，足跟偶尔踮起；男子A站在她身后，一手扶腰一手扶她髋",
@@ -771,7 +776,12 @@
     ],
     "sfxEn": [],
     "lineZh": "嗯，啊，嗯，啊，",
-    "lineEn": "Don't stop… I'm bracing…"
+    "lineEn": "Don't stop… I'm bracing…",
+    "allowed_cameras": [
+      "push_tension",
+      "handheld_breath",
+      "static_subtle"
+    ]
   },
   "table_doggy": {
     "id": "table_doggy",
