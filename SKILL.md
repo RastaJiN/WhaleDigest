@@ -1,7 +1,7 @@
 ---
 name: tunjing-baodian
 description: "Use when creating, importing, formatting, or producing short dramas and manju (短剧/漫剧/正剧/剧本导入/分镜/提示词/工作台/审片) with WhaleDigest."
-version: 4.7.1
+version: 4.7.6
 author: 吞鲸工作室 (Swallowing Whale Studio)
 license: MIT
 metadata:
@@ -9,7 +9,7 @@ metadata:
     tags: [tunjing, baodian, drama, ref2v, gatekeeper]
 ---
 
-# 🐳 WhaleDigest · 短剧工业化导演与门禁引擎 (v4.7.1)
+# 🐳 WhaleDigest · 短剧工业化导演与门禁引擎 (v4.7.6)
 
 > 对齐 `short-drama` 原版五文档工作流，在此基础上升级非破坏剧本导入、正剧确定性拆镜排时、94 套动作真源、H3 编译器与本地工作台。
 > 工程细则与验收边界见 [engineering-contract.md](references/engineering-contract.md) 与 [engineering-rules-detail.md](references/engineering-rules-detail.md)。
