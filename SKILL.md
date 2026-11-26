@@ -34,8 +34,7 @@ metadata:
    - **五文档阶段推进**（契约见 [creator-documents.md](references/sd_core/creator-documents.md) 与 [creator-workflow.md](references/sd_core/creator-workflow.md)）：
      `剧集/<EP>/剧本.md` ➔ `剧集/<EP>/视觉设定.md`（特殊模式按需加挂动作序列规划）➔ `剧集/<EP>/图片提示词.md` ➔ `剧集/<EP>/分镜.md` ➔ `剧集/<EP>/视频提示词.md` ➔ 门禁核验 ➔ 生产/后期。
    - **剧本就绪自动加载与全页实时热同步（首次启动开窗，后续静默复用）**：
-     只要通过 `whale_script_intake.py --apply`、对话手写或任何脚本新写入/修改了 `剧本.md`（或 `剧集/*/剧本.md`），**当场立即调用 `auto_start_dashboard(project_dir, open_browser=True)`（或 `python scripts/whale_dashboard.py --workspace "<项目目录>" --port 0 --detach --open`）并把可点击链接直接打印给用户（真实工作流禁止加 `--no-dashboard` 或 `--no-browser`），绝不等用户再下指令**；`whale_pipeline.py` / `whale_gatekeeper.py` (Gate 2) / `whale_pipeline_check.py` 同样自动拉起工作台。**仅在首次新启动工作台时弹出一次浏览器；工作台已在线时只静默复用并依赖每 `2.5s` 的 `/api/live_signature` 热同步刷新，严禁每次跑脚本都重复弹窗**。传入 `剧集/<EP>/` 子目录时须自动向上锚定到项目根目录，避免嵌套建档与多开工作台端口；且每次 `whale_dashboard.py` 检测到 `brand` 或 `code_fingerprint` 陈旧时会自动淘汰重启旧进程，确保永远加载最新版工作台（手动唯一入口：`python scripts/whale_dashboard.py --workspace "<项目目录>" --port 0 --detach --open`，内部 `--status`/`--detach` 调用须带有限超时如 15s 防僵尸端口阻塞）。
-     若 `.short-drama/dashboard.json` 已有存活进程但 `brand != "tunjing-baodian"`，严禁静默复用，必须 `--restart` 终止旧进程后重拉。引导查看分镜示意图与检视器须指向顶部 `分镜` 阶段页签；`批量任务.json` 为下游编译产物，不作前置手写文件；Markdown 结构门禁与 ComfyUI 批任务门禁须各自独立核验；临时 E2E 验证完成后须停掉临时后台进程并清理临时目录。
+     只要新写入/修改了 `剧本.md`（或 `剧集/*/剧本.md`），**当场立即调用 `auto_start_dashboard(project_dir, open_browser=True)`（或 `python scripts/whale_dashboard.py --workspace "<项目目录>" --port 0 --detach --open`）并把链接打印给用户**。仅首次启动弹出一次浏览器，已在线时静默复用并依赖每 `2.5s` 的热同步刷新；传入 `剧集/<EP>/` 子目录时自动向上锚定到项目根目录。**做分镜时直接写入 `剧集/<EP>/分镜.md`（严禁另起 `分镜-执行.md` 等旁路文件，严禁擅自修改宝典技能源码去迎合旁路文件）**。
 2. **制作形态与决策分工**
    - **六大制作形态卡（`references/sd_core/form-cards/*.md`）**：按 `short-drama.json` 的 `production_form` 自动匹配「实拍 / 二维动态漫 / 风格化三维 / 国漫二次元 / 水墨笔触 / Q版表达」；实拍默认启用 `DE_OIL` 去油光质感锁，动画/三维/水墨自动屏蔽 `35mm` 皮肤摄影前缀并切换对应风格描述。
    - **需监制确认的决策**：题材方向、冲突原型、画幅比例（`16:9` / `9:16` / `1:1`）、角色参考资产、指定工作流路径及特殊动作序列确认。
